@@ -1,4 +1,4 @@
-# 05 backend abstraction
+# Backend Abstraction
 
 This document explains Triton's plugin architecture for GPU backends, covering backend discovery, the key abstractions, and how to add a new backend.
 
@@ -37,7 +37,7 @@ def _discover_backends() -> dict[str, Backend]:
 backends: dict[str, Backend] = _discover_backends()
 ```
 
-***
+---
 
 ## Key Abstractions
 
@@ -112,7 +112,7 @@ class DriverBase(metaclass=ABCMeta):
         """Return benchmarking function."""
 ```
 
-***
+---
 
 ## Driver Selection
 
@@ -138,7 +138,7 @@ driver = DriverConfig()
 driver.active  # Returns CudaDriver or HipDriver
 ```
 
-***
+---
 
 ## NVIDIA Backend Implementation
 
@@ -180,7 +180,7 @@ class CudaDriver(GPUDriver):
         return GPUTarget("cuda", capability[0]*10 + capability[1], 32)
 ```
 
-***
+---
 
 ## AMD Backend Implementation
 
@@ -219,71 +219,34 @@ class HIPDriver(GPUDriver):
         return GPUTarget("hip", arch, 64)  # AMD uses 64-thread warps
 ```
 
-***
+---
 
 ## How Backends Are Selected at Runtime
 
-{% stepper %}
-{% step %}
-### Kernel launch triggers JIT
-
-User calls kernel:
-
 ```python
+# 1. User calls kernel
 kernel[grid](x, y, output)
-```
-{% endstep %}
 
-{% step %}
-### Get current target
-
-JITFunction.run() gets current target:
-
-```python
+# 2. JITFunction.run() gets current target
 target = driver.active.get_current_target()  # GPUTarget("cuda", 90, 32)
-```
-{% endstep %}
 
-{% step %}
-### Create backend for target
-
-Get appropriate backend:
-
-```python
+# 3. Get appropriate backend
 backend = make_backend(target)  # Returns CUDABackend(target)
-```
-{% endstep %}
 
-{% step %}
-### Backend defines compilation stages
-
-Backend populates stages:
-
-```python
+# 4. Backend defines compilation stages
 stages = {}
 backend.add_stages(stages, options, Language.TRITON)
-```
-{% endstep %}
 
-{% step %}
-### Compile through stages
-
-Pipeline executes stages in order:
-
-```python
+# 5. Compile through stages
 for stage_name, stage_fn in stages.items():
     module = stage_fn(module, metadata)
 ```
-{% endstep %}
-{% endstepper %}
 
-***
+---
 
 ## Adding a New Backend
 
-{% stepper %}
-{% step %}
-### Create directory structure
+### 1. Create directory structure
 
 ```
 third_party/<backend>/
@@ -294,10 +257,8 @@ third_party/<backend>/
 ├── lib/               # C++/MLIR code
 └── include/           # Headers
 ```
-{% endstep %}
 
-{% step %}
-### Implement BaseBackend
+### 2. Implement BaseBackend
 
 ```python
 class MyBackend(BaseBackend):
@@ -310,10 +271,8 @@ class MyBackend(BaseBackend):
         stages["my_ir"] = self.make_my_ir
         stages["binary"] = self.make_binary
 ```
-{% endstep %}
 
-{% step %}
-### Implement DriverBase
+### 3. Implement DriverBase
 
 ```python
 class MyDriver(GPUDriver):
@@ -324,45 +283,40 @@ class MyDriver(GPUDriver):
     def get_current_target(self):
         return GPUTarget("my_backend", arch, warp_size)
 ```
-{% endstep %}
 
-{% step %}
-### Register via entry point (pyproject.toml)
+### 4. Register via entry point (pyproject.toml)
 
 ```toml
 [project.entry-points."triton.backends"]
 my_backend = "triton.backends.my_backend"
 ```
-{% endstep %}
-{% endstepper %}
 
-***
+---
 
 ## Backend Selection Environment Variables
 
-| Variable                  | Purpose                    | Example       |
-| ------------------------- | -------------------------- | ------------- |
-| `TRITON_DEFAULT_BACKEND`  | Force specific backend     | `cuda`, `hip` |
-| `TRITON_BACKENDS_IN_TREE` | Skip entry point discovery | `1`           |
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `TRITON_DEFAULT_BACKEND` | Force specific backend | `cuda`, `hip` |
+| `TRITON_BACKENDS_IN_TREE` | Skip entry point discovery | `1` |
 
-***
+---
 
 ## Compilation Stage Differences
 
-| Stage     | NVIDIA              | AMD                 |
-| --------- | ------------------- | ------------------- |
-| IR        | TTIR → TTGIR → LLIR | TTIR → TTGIR → LLIR |
-| Assembly  | PTX                 | AMDGCN              |
-| Binary    | CUBIN (via ptxas)   | HSACO (via lld)     |
-| Assembler | ptxas               | lld                 |
+| Stage | NVIDIA | AMD |
+|-------|--------|-----|
+| IR | TTIR → TTGIR → LLIR | TTIR → TTGIR → LLIR |
+| Assembly | PTX | AMDGCN |
+| Binary | CUBIN (via ptxas) | HSACO (via lld) |
+| Assembler | ptxas | lld |
 
-***
+---
 
 ## Summary
 
 The backend abstraction enables:
-
-* Plugin architecture: New backends can be added without modifying core Triton
-* Runtime detection: Automatically selects available GPU
-* Unified API: Same Python API works across NVIDIA/AMD
-* Customizable pipeline: Each backend defines its own compilation stages
+1. **Plugin architecture:** New backends can be added without modifying core Triton
+2. **Runtime detection:** Automatically selects available GPU
+3. **Unified API:** Same Python API works across NVIDIA/AMD
+4. **Customizable pipeline:** Each backend defines its own compilation stages

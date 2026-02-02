@@ -1,4 +1,4 @@
-# Selective MLP Checkpointing
+# Selective MLP Gradient Checkpointing Implementation Guide
 
 This guide explains how to implement per-layer MLP-only gradient checkpointing in Megatron-LM to reduce memory usage while minimizing recomputation overhead.
 
@@ -6,12 +6,12 @@ This guide explains how to implement per-layer MLP-only gradient checkpointing i
 
 Megatron-LM's current gradient checkpointing options have limitations:
 
-| Mode             | Module Control              | Layer Control                  | Limitation                      |
-| ---------------- | --------------------------- | ------------------------------ | ------------------------------- |
-| `selective`      | Yes (`--recompute-modules`) | No (all layers)                | Cannot limit to specific layers |
-| `full` + `block` | No (entire layer)           | Yes (`--recompute-num-layers`) | Cannot target only MLP          |
+| Mode | Module Control | Layer Control | Limitation |
+|------|----------------|---------------|------------|
+| `selective` | Yes (`--recompute-modules`) | No (all layers) | Cannot limit to specific layers |
+| `full` + `block` | No (entire layer) | Yes (`--recompute-num-layers`) | Cannot target only MLP |
 
-Goal: Apply gradient checkpointing to MLP modules only, and only for a subset of layers (e.g., first N layers).
+**Goal**: Apply gradient checkpointing to MLP modules only, and only for a subset of layers (e.g., first N layers).
 
 ## Solution Overview
 
@@ -19,9 +19,7 @@ Add a new configuration option `recompute_mlp_num_layers` that controls how many
 
 ## Implementation
 
-{% stepper %}
-{% step %}
-### File 1: megatron/core/transformer/transformer\_config.py
+### File 1: `megatron/core/transformer/transformer_config.py`
 
 Add the new configuration field after line 352 (after `recompute_modules` definition):
 
@@ -34,10 +32,8 @@ If None, MLP recomputation applies to all layers.
 Example: recompute_mlp_num_layers=12 applies MLP checkpointing to layers 1-12 only.
 """
 ```
-{% endstep %}
 
-{% step %}
-### File 2: megatron/core/transformer/transformer\_layer.py
+### File 2: `megatron/core/transformer/transformer_layer.py`
 
 Modify the MLP recompute logic around lines 443-445. Replace:
 
@@ -59,10 +55,8 @@ if "mlp" in self.config.recompute_modules:
             # layer_number is 1-indexed
             self.recompute_mlp = self.layer_number <= self.config.recompute_mlp_num_layers
 ```
-{% endstep %}
 
-{% step %}
-### File 3: megatron/training/arguments.py (CLI)
+### File 3: `megatron/training/arguments.py`
 
 Add CLI argument after line 2217 (after `--recompute-modules`):
 
@@ -74,10 +68,8 @@ group.add_argument('--recompute-mlp-num-layers', type=int, default=None,
                    'Example: --recompute-mlp-num-layers 12 applies MLP '
                    'checkpointing to layers 1-12 only.')
 ```
-{% endstep %}
 
-{% step %}
-### File 4: megatron/training/arguments.py (validation)
+### File 4: `megatron/training/arguments.py` (validation)
 
 Add validation in `_validate_args()` function (around line 1000+):
 
@@ -97,8 +89,6 @@ if args.recompute_mlp_num_layers is not None:
             '--recompute-mlp-num-layers must be >= 1'
         )
 ```
-{% endstep %}
-{% endstepper %}
 
 ## Usage
 
@@ -148,24 +138,24 @@ config = TransformerConfig(
 
 ## Memory vs Compute Trade-offs
 
-| Layers with MLP Checkpointing | Memory Savings       | Recompute Overhead    |
-| ----------------------------- | -------------------- | --------------------- |
-| All layers                    | Maximum              | Maximum               |
-| First 50% of layers           | \~50% of max savings | \~50% of max overhead |
-| First 25% of layers           | \~25% of max savings | \~25% of max overhead |
-| 0 (disabled)                  | None                 | None                  |
+| Layers with MLP Checkpointing | Memory Savings | Recompute Overhead |
+|-------------------------------|----------------|-------------------|
+| All layers | Maximum | Maximum |
+| First 50% of layers | ~50% of max savings | ~50% of max overhead |
+| First 25% of layers | ~25% of max savings | ~25% of max overhead |
+| 0 (disabled) | None | None |
 
-Recommended starting points:
+### Recommended Starting Points
 
-* Memory-constrained: Start with all layers (`--recompute-mlp-num-layers` not set)
-* Balanced: Start with 50% of layers, adjust based on OOM vs throughput
-* Compute-constrained: Use fewer layers or disable MLP checkpointing
+- **Memory-constrained**: Start with all layers (`--recompute-mlp-num-layers` not set)
+- **Balanced**: Start with 50% of layers, adjust based on OOM vs throughput
+- **Compute-constrained**: Use fewer layers or disable MLP checkpointing
 
 ## Verification
 
 ### Check which layers have MLP checkpointing enabled
 
-Add temporary debug logging in `transformer_layer.py`:
+Add debug logging (temporary) in `transformer_layer.py`:
 
 ```python
 if "mlp" in self.config.recompute_modules:
@@ -263,16 +253,16 @@ recompute_core_attn_num_layers: Optional[int] = None
 
 ## Related Configuration Options
 
-| Option                       | Description                                        |
-| ---------------------------- | -------------------------------------------------- |
-| `--recompute-granularity`    | `full` or `selective`                              |
-| `--recompute-method`         | `uniform` or `block` (only for `full`)             |
-| `--recompute-num-layers`     | Layers per chunk/stage (only for `full`)           |
-| `--recompute-modules`        | Which modules to checkpoint (`selective` only)     |
+| Option | Description |
+|--------|-------------|
+| `--recompute-granularity` | `full` or `selective` |
+| `--recompute-method` | `uniform` or `block` (only for `full`) |
+| `--recompute-num-layers` | Layers per chunk/stage (only for `full`) |
+| `--recompute-modules` | Which modules to checkpoint (`selective` only) |
 | `--recompute-mlp-num-layers` | **NEW**: Limit MLP checkpointing to first N layers |
 
 ## References
 
-* Reducing Activation Recomputation in Large Transformer Models: https://arxiv.org/abs/2205.05198
-* Megatron-LM TransformerConfig: `megatron/core/transformer/transformer_config.py`
-* Gradient Checkpointing Implementation: `megatron/core/tensor_parallel/random.py`
+- Reducing Activation Recomputation in Large Transformer Models: https://arxiv.org/abs/2205.05198
+- Megatron-LM TransformerConfig: `megatron/core/transformer/transformer_config.py`
+- Gradient Checkpointing Implementation: `megatron/core/tensor_parallel/random.py`

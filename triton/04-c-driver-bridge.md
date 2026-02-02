@@ -1,21 +1,19 @@
-# 04 c driver bridge
+# C Driver Bridge
 
-This document explains how the C driver (`driver.c`) bridges Python and the GPU by loading compiled binaries and executing kernels via the CUDA Driver API.
+This document explains how the C driver (`driver.c`) bridges Python and the GPU by loading compiled binaries and executing kernels via CUDA Driver API.
 
 ## Overview
 
 The C driver bridges Python and the GPU by:
-
-* Loading compiled CUBIN into the GPU driver
-* Extracting arguments from Python objects
-* Calling CUDA Driver API to execute kernels
+1. Loading compiled CUBIN into the GPU driver
+2. Extracting arguments from Python objects
+3. Calling CUDA Driver API to execute kernels
 
 ## Python Module Structure
 
 **File:** `third_party/nvidia/backend/driver.c` (lines 1118-1144)
 
 The C code is compiled as a Python extension module:
-
 ```c
 static PyMethodDef ModuleMethods[] = {
     {"load_binary", loadBinary, METH_VARARGS, "Load cubin into CUDA driver"},
@@ -33,9 +31,9 @@ PyMODINIT_FUNC PyInit_cuda_utils(void) {
 
 This creates `cuda_utils.cpython-*.so` which is imported in Python.
 
-{% stepper %}
-{% step %}
-### Binary Loading: `loadBinary()`
+---
+
+## Binary Loading: `loadBinary()`
 
 **File:** `driver.c` (lines 156-218)
 
@@ -80,16 +78,15 @@ static PyObject *loadBinary(PyObject *self, PyObject *args) {
 }
 ```
 
-What this does:
+**What this does:**
+- Takes CUBIN bytes from Python
+- Registers the binary with CUDA driver (`cuModuleLoadData`)
+- Extracts the kernel function (`cuModuleGetFunction`)
+- Returns handles for later execution
 
-* Takes CUBIN bytes from Python
-* Registers the binary with CUDA driver (`cuModuleLoadData`)
-* Extracts the kernel function (`cuModuleGetFunction`)
-* Returns handles for later execution
-{% endstep %}
+---
 
-{% step %}
-### Kernel Launch: `launchKernel()`
+## Kernel Launch: `launchKernel()`
 
 **File:** `driver.c` (lines 1005-1116)
 
@@ -142,16 +139,9 @@ static PyObject *launchKernel(PyObject *self, PyObject *args) {
 }
 ```
 
-Notes:
+---
 
-* Parses a rich tuple of launch parameters and metadata from Python
-* Calls pre/post hooks (useful for profiling/instrumentation)
-* Uses extractor functions to convert Python objects into raw C memory for kernel parameters
-* Releases the GIL around the actual GPU launch
-{% endstep %}
-
-{% step %}
-### Actual CUDA Launch: `_launch()`
+## Actual CUDA Launch: `_launch()`
 
 **File:** `driver.c` (lines 570-636)
 
@@ -199,15 +189,9 @@ static void _launch(int gridX, int gridY, int gridZ, int num_warps,
 }
 ```
 
-Notes:
+---
 
-* Constructs a CUlaunchConfig including grid/block sizes and dynamic shared memory
-* Adds optional launch attributes (cooperative grid, cluster dimensions)
-* Calls `cuLaunchKernelExHandle` to execute the kernel
-{% endstep %}
-
-{% step %}
-### Argument Extraction
+## Argument Extraction
 
 **File:** `driver.c` (lines 640-779)
 
@@ -242,8 +226,7 @@ bool extractFP32(void *ptr, PyObject *obj) {
 }
 ```
 
-Extractor dispatch table:
-
+**Extractor dispatch table:**
 ```c
 Extractor extraction_map[] = {
     [EXTRACTOR_POINTER_INDEX] = {extractPointer, sizeof(CUdeviceptr)},
@@ -254,15 +237,9 @@ Extractor extraction_map[] = {
 };
 ```
 
-Key points:
+---
 
-* Pointers can be passed as integers or obtained from tensor.data\_ptr()
-* Primitive Python types are converted into fixed-size C values placed on the stack (via alloca)
-* A dispatch table maps extractor kinds to extractor functions and sizes
-{% endstep %}
-
-{% step %}
-### Python Launcher Class
+## Python Launcher Class
 
 **File:** `driver.py` (lines 277-316)
 
@@ -298,13 +275,9 @@ class CudaLauncher(object):
         )
 ```
 
-Notes:
+---
 
-* The Python side prepares metadata and scratch buffers, then delegates actual work to the C extension
-{% endstep %}
-
-{% step %}
-### Complete Call Flow
+## Complete Call Flow
 
 ```
 Python:
@@ -342,19 +315,21 @@ C:
         5. Call launch_exit_hook
         6. Return None to Python
 ```
-{% endstep %}
-{% endstepper %}
+
+---
 
 ## Key CUDA Driver API Calls
 
-| Function                  | Purpose                    | Location                     |
-| ------------------------- | -------------------------- | ---------------------------- |
-| `cuModuleLoadData()`      | Load CUBIN into GPU driver | `loadBinary()` line 182      |
-| `cuModuleGetFunction()`   | Get kernel function handle | `loadBinary()` line 184      |
-| `cuFuncGetAttribute()`    | Query register/spill count | `loadBinary()` lines 186-192 |
-| `cuFuncSetAttribute()`    | Configure shared memory    | `loadBinary()` line 208      |
-| `cuLaunchKernelEx()`      | **Execute kernel on GPU**  | `_launch()` line 634         |
-| `cuPointerGetAttribute()` | Verify GPU pointer         | `extractPointer()` line 669  |
+| Function | Purpose | Location |
+|----------|---------|----------|
+| `cuModuleLoadData()` | Load CUBIN into GPU driver | `loadBinary()` line 182 |
+| `cuModuleGetFunction()` | Get kernel function handle | `loadBinary()` line 184 |
+| `cuFuncGetAttribute()` | Query register/spill count | `loadBinary()` lines 186-192 |
+| `cuFuncSetAttribute()` | Configure shared memory | `loadBinary()` line 208 |
+| `cuLaunchKernelEx()` | **Execute kernel on GPU** | `_launch()` line 634 |
+| `cuPointerGetAttribute()` | Verify GPU pointer | `extractPointer()` line 669 |
+
+---
 
 ## GIL Handling
 
@@ -367,11 +342,12 @@ Py_END_ALLOW_THREADS;    // Re-acquire GIL
 ```
 
 This allows:
+- Multiple Python threads to launch kernels concurrently
+- Python code to run while GPU is executing
+- Async GPU operations
 
-* Multiple Python threads to launch kernels concurrently
-* Python code to run while GPU is executing
-* Async GPU operations
+---
 
 ## Next Steps
 
-* [Backend Abstraction](05-backend-abstraction.md) - NVIDIA/AMD plugin architecture
+- [Backend Abstraction](05-backend-abstraction.md) - NVIDIA/AMD plugin architecture

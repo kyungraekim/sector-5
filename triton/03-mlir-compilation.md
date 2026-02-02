@@ -1,4 +1,4 @@
-# 03 mlir compilation
+# MLIR Compilation Pipeline
 
 This document provides a deep dive into Triton's MLIR-based compilation pipeline, covering the transformation from Python AST to GPU binary.
 
@@ -12,7 +12,7 @@ Python AST → TTIR → TTGIR → LLIR → PTX → CUBIN
 
 Each stage is an MLIR pass manager that transforms the IR.
 
-***
+---
 
 ## Stage 1: Python AST → TTIR (Triton IR)
 
@@ -35,21 +35,18 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
     return generator.module
 ```
 
-CodeGenerator (`code_generator.py:274`):
+**CodeGenerator** (`code_generator.py:274`):
+- Inherits from `ast.NodeVisitor`
+- Visits Python AST nodes and emits MLIR operations
+- Uses `TritonSemantic` (line 288) for operation semantics
 
-* Inherits from `ast.NodeVisitor`
-* Visits Python AST nodes and emits MLIR operations
-* Uses `TritonSemantic` (line 288) for operation semantics
+**Key visit methods:**
+- `visit_FunctionDef` - Creates MLIR function
+- `visit_For` - Generates `scf.for` loops
+- `visit_If` - Generates `scf.if` conditionals
+- `visit_Call` (line 1420) - Maps `tl.*` calls to MLIR ops
 
-Key visit methods:
-
-* `visit_FunctionDef` - Creates MLIR function
-* `visit_For` - Generates `scf.for` loops
-* `visit_If` - Generates `scf.if` conditionals
-* `visit_Call` (line 1420) - Maps `tl.*` calls to MLIR ops
-
-Example transformation:
-
+**Example transformation:**
 ```python
 # Python:
 x = tl.load(ptr + offsets, mask=mask)
@@ -59,19 +56,18 @@ x = tl.load(ptr + offsets, mask=mask)
 %2 = tt.load %1, %mask : tensor<128xf32>
 ```
 
-***
+---
 
 ## Stage 2: TTIR → TTGIR (TritonGPU IR)
 
 **File:** `third_party/nvidia/backend/compiler.py` (lines 251-323)
 
 This stage adds GPU-specific information:
+- **Layouts:** How data is distributed across threads/warps
+- **Tensor Core ops:** Matrix multiply-accumulate (MMA)
+- **Memory optimizations:** Coalescing, prefetching
 
-* Layouts: How data is distributed across threads/warps
-* Tensor Core ops: Matrix multiply-accumulate (MMA)
-* Memory optimizations: Coalescing, prefetching
-
-Key passes:
+**Key passes:**
 
 ```python
 def make_ttgir(mod, metadata, opt, capability):
@@ -104,8 +100,7 @@ def make_ttgir(mod, metadata, opt, capability):
     pm.run(mod, 'make_ttgir')
 ```
 
-Example transformation:
-
+**Example transformation:**
 ```mlir
 // TTIR:
 %1 = tt.dot %a, %b : tensor<128x64xf16>, tensor<64x128xf16>
@@ -114,19 +109,18 @@ Example transformation:
 %1 = tt.dot %a, %b : tensor<128x64xf16, #mma>, tensor<64x128xf16, #mma>
 ```
 
-***
+---
 
 ## Stage 3: TTGIR → LLIR (LLVM IR)
 
 **File:** `third_party/nvidia/backend/compiler.py` (lines 344-438)
 
 This stage lowers TritonGPU IR to LLVM IR:
+- Allocates shared memory
+- Lowers tensor ops to PTX intrinsics
+- Converts control flow
 
-* Allocates shared memory
-* Lowers tensor ops to PTX intrinsics
-* Converts control flow
-
-Key passes:
+**Key passes:**
 
 ```python
 def make_llir(self, src, metadata, options, capability):
@@ -161,13 +155,13 @@ def make_llir(self, src, metadata, options, capability):
     return str(llvm_mod)
 ```
 
-Shared memory allocation: The pass computes required shared memory and adds:
-
+**Shared memory allocation:**
+The pass computes required shared memory and adds:
 ```mlir
 module attributes {"ttg.shared" = 16384}  # 16KB shared memory
 ```
 
-***
+---
 
 ## Stage 4: LLIR → PTX
 
@@ -194,8 +188,7 @@ def make_ptx(self, src, metadata, opt, capability):
     return ret  # PTX assembly as string
 ```
 
-Example PTX output:
-
+**Example PTX output:**
 ```ptx
 .version 8.0
 .target sm_90
@@ -215,7 +208,7 @@ Example PTX output:
 }
 ```
 
-***
+---
 
 ## Stage 5: PTX → CUBIN
 
@@ -252,20 +245,20 @@ def make_cubin(self, src, metadata, opt, capability):
     return cubin  # Binary bytes
 ```
 
-***
+---
 
 ## MLIR Dialects Used
 
-| Dialect         | Prefix | Purpose                    | Example Ops                     |
-| --------------- | ------ | -------------------------- | ------------------------------- |
-| Triton          | `tt`   | High-level tensor ops      | `tt.load`, `tt.store`, `tt.dot` |
-| TritonGPU       | `ttg`  | GPU layouts, optimizations | Layout attributes               |
-| TritonNvidiaGPU | `ttng` | NVIDIA-specific            | `ttng.warp_group_dot`, TMA      |
-| SCF             | `scf`  | Structured control flow    | `scf.for`, `scf.if`             |
-| LLVM            | `llvm` | LLVM IR in MLIR            | `llvm.call`, `llvm.load`        |
-| NVVM            | `nvvm` | NVIDIA intrinsics          | `nvvm.read.ptx.sreg`            |
+| Dialect | Prefix | Purpose | Example Ops |
+|---------|--------|---------|-------------|
+| Triton | `tt` | High-level tensor ops | `tt.load`, `tt.store`, `tt.dot` |
+| TritonGPU | `ttg` | GPU layouts, optimizations | Layout attributes |
+| TritonNvidiaGPU | `ttng` | NVIDIA-specific | `ttng.warp_group_dot`, TMA |
+| SCF | `scf` | Structured control flow | `scf.for`, `scf.if` |
+| LLVM | `llvm` | LLVM IR in MLIR | `llvm.call`, `llvm.load` |
+| NVVM | `nvvm` | NVIDIA intrinsics | `nvvm.read.ptx.sreg` |
 
-***
+---
 
 ## Debugging the Pipeline
 
@@ -288,7 +281,7 @@ TRITON_OVERRIDE_DIR=/path/to/override \
 python script.py
 ```
 
-***
+---
 
 ## Summary: From Python to GPU Binary
 
@@ -303,51 +296,34 @@ def add_kernel(x_ptr, y_ptr, output_ptr, N, BLOCK_SIZE: tl.constexpr):
     tl.store(output_ptr + offsets, x + y, mask=mask)
 ```
 
-Transformation steps:
+**Transformation:**
 
-{% stepper %}
-{% step %}
-### AST → TTIR
+1. **AST → TTIR:**
+   - `tl.program_id(0)` → `tt.get_program_id(0)`
+   - `tl.arange(0, BLOCK_SIZE)` → `tt.make_range(0, 1024)`
+   - `tl.load(...)` → `tt.load %ptr, %mask`
 
-* `tl.program_id(0)` → `tt.get_program_id(0)`
-* `tl.arange(0, BLOCK_SIZE)` → `tt.make_range(0, 1024)`
-* `tl.load(...)` → `tt.load %ptr, %mask`
-{% endstep %}
+2. **TTIR → TTGIR:**
+   - Add `#blocked` layout to tensors
+   - Insert `ttg.local_alloc` for shared memory
+   - Optimize memory access patterns
 
-{% step %}
-### TTIR → TTGIR
+3. **TTGIR → LLIR:**
+   - Lower `tt.load` to `llvm.load` + address calculation
+   - Allocate shared memory (`llvm.inline_asm` for allocation)
+   - Insert barriers (`nvvm.barrier0`)
 
-* Add `#blocked` layout to tensors
-* Insert `ttg.local_alloc` for shared memory
-* Optimize memory access patterns
-{% endstep %}
+4. **LLIR → PTX:**
+   - LLVM backend generates PTX assembly
+   - Uses PTX-specific instructions (`ld.global`, `st.global`)
 
-{% step %}
-### TTGIR → LLIR
+5. **PTX → CUBIN:**
+   - `ptxas` assembles PTX to machine code
+   - Output: ELF binary loadable by CUDA driver
 
-* Lower `tt.load` to `llvm.load` + address calculation
-* Allocate shared memory (`llvm.inline_asm` for allocation)
-* Insert barriers (`nvvm.barrier0`)
-{% endstep %}
-
-{% step %}
-### LLIR → PTX
-
-* LLVM backend generates PTX assembly
-* Uses PTX-specific instructions (`ld.global`, `st.global`)
-{% endstep %}
-
-{% step %}
-### PTX → CUBIN
-
-* `ptxas` assembles PTX to machine code
-* Output: ELF binary loadable by CUDA driver
-{% endstep %}
-{% endstepper %}
-
-***
+---
 
 ## Next Steps
 
-* [C Driver Bridge](04-c-driver-bridge.md) - How Python calls GPU APIs
-* [Backend Abstraction](05-backend-abstraction.md) - NVIDIA/AMD plugin architecture
+- [C Driver Bridge](04-c-driver-bridge.md) - How Python calls GPU APIs
+- [Backend Abstraction](05-backend-abstraction.md) - NVIDIA/AMD plugin architecture
