@@ -994,7 +994,7 @@ print(prof.key_averages().table(sort_by="cuda_time_total"))
 ## References and Further Reading
 
 **Key Source Files**:
-- `megatron/core/distributed/param_and_grad_buffer.py:1-1007` - Gradient bucketing and async reduction
+- `megatron/core/distributed/param_and_grad_buffer.py:1-1016` - Gradient bucketing and async reduction
 - `megatron/core/distributed/distributed_data_parallel.py:441-467` - Backward hooks for gradient readiness
 - `megatron/core/tensor_parallel/layers.py:514-536` - Async TP all-reduce/all-gather
 - `megatron/core/extensions/transformer_engine.py:~1500-1600` - TE userbuffer overlap

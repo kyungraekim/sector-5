@@ -68,11 +68,11 @@ Speedup: 33% fewer all-reduces + fused computation
 
 ```
 megatron/core/fusions/
-├── fused_softmax.py                # Softmax fusions (360 lines)
-└── fused_cross_entropy.py          # Cross-entropy fusion (149 lines)
+├── fused_softmax.py                # Softmax fusions (359 lines)
+└── fused_cross_entropy.py          # Cross-entropy fusion (148 lines)
 
 megatron/core/tensor_parallel/
-└── cross_entropy.py                # Vocab-parallel utilities (233 lines)
+└── cross_entropy.py                # Vocab-parallel utilities (232 lines)
 
 megatron/core/transformer/
 └── dot_product_attention.py        # Softmax integration
@@ -97,7 +97,7 @@ Megatron implements three specialized softmax CUDA kernels, each optimized for d
 
 ### Kernel Selection Logic
 
-**FusedScaleMaskSoftmax Module** (megatron/core/fusions/fused_softmax.py:179-360):
+**FusedScaleMaskSoftmax Module** (megatron/core/fusions/fused_softmax.py:179-359):
 ```python
 class FusedScaleMaskSoftmax(nn.Module):
     """Dispatches to CUDA kernels or PyTorch fallback.
@@ -242,7 +242,7 @@ __global__ void scaled_upper_triang_masked_softmax_kernel(
 }
 ```
 
-**Shape Transformation** (megatron/core/fusions/fused_softmax.py:285-291):
+**Shape Transformation** (megatron/core/fusions/fused_softmax.py:272-291):
 ```python
 def forward_fused_softmax(self, input, mask):
     b, np, sq, sk = input.size()
@@ -881,7 +881,7 @@ def calculate_cross_entropy_loss(exp_logits, predicted_logits, sum_exp_logits):
     return exp_logits, loss
 ```
 
-**Step 4: Gradients** (megatron/core/tensor_parallel/cross_entropy.py:104-119):
+**Step 4: Gradients** (megatron/core/tensor_parallel/cross_entropy.py:103-119):
 ```python
 @staticmethod
 def calculate_gradients(
@@ -905,7 +905,7 @@ def calculate_gradients(
 
 ### Label Smoothing Support
 
-**Non-Fused Cross-Entropy** supports label smoothing (megatron/core/tensor_parallel/cross_entropy.py:165-182):
+**Non-Fused Cross-Entropy** supports label smoothing (megatron/core/tensor_parallel/cross_entropy.py:165-183):
 ```python
 if label_smoothing > 0:
     """

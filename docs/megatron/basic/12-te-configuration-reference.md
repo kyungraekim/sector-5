@@ -1240,7 +1240,7 @@ Run with profiling:
 - **[08-kernel-selection-guide.md](08-kernel-selection-guide.md)**: Attention backend selection
 - **[09-transformer-engine-integration.md](09-transformer-engine-integration.md)**: TE architecture deep dive
 - **[10-fp8-training.md](10-fp8-training.md)**: FP8 recipes and quantization details
-- **[11-te-optimizations.md](11-te-optimizations.md)**: Advanced TE optimizations
+- **[11-te-fused-operations.md](11-te-fused-operations.md)**: Advanced TE optimizations
 - **[02-communication-overlap.md](02-communication-overlap.md)**: Communication overlap theory
 
 ---

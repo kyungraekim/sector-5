@@ -244,7 +244,7 @@ The core buffer implementation is in `megatron/core/distributed/param_and_grad_b
 **Class Definition**:
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:510-531
+# megatron/core/distributed/param_and_grad_buffer.py:520-539
 class _ParamAndGradBuffer:
     """
     Groups parameters and gradients into a contiguous buffer, and then breaks the buffer into
@@ -268,7 +268,7 @@ class _ParamAndGradBuffer:
 
 ### Buffer Allocation Strategy
 
-**Key Steps** (from `param_and_grad_buffer.py:614-696`):
+**Key Steps** (from `param_and_grad_buffer.py:624-705`):
 
 1. **Iterate through parameters in reverse order** (to match backprop order)
 2. **Pad parameter start addresses** (for distributed optimizer alignment)
@@ -279,7 +279,7 @@ class _ParamAndGradBuffer:
 **Padding for Performance**:
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:581-612
+# megatron/core/distributed/param_and_grad_buffer.py:591-612
 def _pad(number_to_be_padded: int, divisor: int) -> int:
     return int(math.ceil(number_to_be_padded / divisor) * divisor)
 
@@ -311,7 +311,7 @@ def _pad_end_of_bucket_if_needed(bucket_end_index: int) -> int:
 **Standard Allocation** (non-FP8):
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:697-748
+# megatron/core/distributed/param_and_grad_buffer.py:707-755
 self.param_data = None
 
 if self.nccl_ub:
@@ -349,7 +349,7 @@ with mem_alloc_context():
 **MXFP8 Optimization** (shared buffer for memory efficiency):
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:716-733
+# megatron/core/distributed/param_and_grad_buffer.py:726-743
 # For MXFP8: Create shared buffer for param AllGather and grad ReduceScatter
 if self.ddp_config.use_distributed_optimizer and any(is_mxfp8tensor(p) for p in params):
     self.shared_buffer = torch.zeros(
@@ -403,7 +403,7 @@ Rationale:
 ### `_ParamAndGradBucket` Class
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:62-105
+# megatron/core/distributed/param_and_grad_buffer.py:67-109
 class _ParamAndGradBucket:
     """
     Bucket to keep track of a subset of the model's parameters and gradients.
@@ -445,7 +445,7 @@ class _ParamAndGradBucket:
 Buckets are organized into **bucket groups** for aggregated communication:
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:107-175
+# megatron/core/distributed/param_and_grad_buffer.py:112-180
 class _ParamAndGradBucketGroup:
     """
     Put multiple buckets into a group so that their communications can be aggregated together.
@@ -465,7 +465,7 @@ class _ParamAndGradBucketGroup:
 **Bookkeeping State**:
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:139-149
+# megatron/core/distributed/param_and_grad_buffer.py:148-153
 # State for bookkeeping: params is the set of parameters this bucket group is
 # responsible for, params_with_grad is the set of parameters with grads available.
 self.param_to_bucket = {}
@@ -481,7 +481,7 @@ for bucket in self.buckets:
 **Reverse Order Iteration** (to match backprop):
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:657-682
+# megatron/core/distributed/param_and_grad_buffer.py:667-691
 for param in params[::-1]:  # Reverse order!
     # Iterate through parameters in reverse order to roughly follow backprop order.
 
@@ -515,7 +515,7 @@ for param in params[::-1]:  # Reverse order!
 **Asynchronous Communication** (when `overlap_grad_reduce=True`):
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:330-369
+# megatron/core/distributed/param_and_grad_buffer.py:340-369
 def start_grad_sync(self):
     """
     Initiates grad sync (all-reduce or reduce-scatter) communication operations
@@ -717,7 +717,7 @@ Actual Speedup:  2-3× (typical, due to partial overlap)
 For **MoE (Mixture of Experts)** models, gradients require special scaling:
 
 ```python
-# megatron/core/distributed/distributed_data_parallel.py:275-310
+# megatron/core/distributed/distributed_data_parallel.py:282-309
 if self.ddp_config.average_in_collective:
     # Non-expert parameters: no pre-scaling
     gradient_scaling_factor = 1.0

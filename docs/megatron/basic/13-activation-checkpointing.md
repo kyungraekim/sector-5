@@ -140,7 +140,7 @@ Megatron supports two granularity levels:
 
 **Compute overhead**: 20-30% (recomputing attention is cheap)
 
-**Location**: `megatron/core/transformer/transformer_config.py:298-307`
+**Location**: `megatron/core/transformer/transformer_config.py:311-319`
 
 ```python
 recompute_granularity: Optional[str] = None
@@ -242,7 +242,7 @@ When using checkpointing, you can control **which layers** are checkpointed:
 
 **Compute overhead**: Reduced (less recomputation)
 
-**Location**: `megatron/core/transformer/transformer_config.py:310-311`
+**Location**: `megatron/core/transformer/transformer_config.py:322-328`
 
 ```python
 recompute_method: Optional[str] = None
@@ -274,7 +274,7 @@ and recompute the input activation of each divided chunk at the specified granul
 
 **Use**: Pipeline parallelism with memory imbalance (early stages have more memory)
 
-**Location**: `megatron/core/transformer/transformer_config.py:312-315`
+**Location**: `megatron/core/transformer/transformer_config.py:325-328`
 
 ```python
 """block will recompute the input activations for only a set number of transformer layers per
@@ -300,7 +300,7 @@ When using `--recompute-granularity selective`, you can specify **which submodul
 
 ### Available Modules
 
-**Location**: `megatron/core/transformer/transformer_config.py:326-339`
+**Location**: `megatron/core/transformer/transformer_config.py:339-352`
 
 ```python
 recompute_modules: Optional[List[str]] = None
@@ -332,7 +332,7 @@ default: ["core_attn"].
 
 **Use for**: All models ≥ 20B parameters
 
-**Implementation**: `megatron/core/transformer/attention.py:197-268`
+**Implementation**: `megatron/core/transformer/attention.py:226-302`
 
 ```python
 self.checkpoint_core_attention = (
@@ -688,7 +688,7 @@ python pretrain_gpt.py \
 
 **Solution**: TE provides `set_for_recompute_input_layernorm()` method.
 
-**Location**: `megatron/core/transformer/attention.py:942-944`
+**Location**: `megatron/core/transformer/attention.py:1036-1038`
 
 ```python
 def set_for_recompute_input_layernorm(self):
@@ -721,7 +721,7 @@ def set_for_recompute_input_layernorm(self):
 
 **PyTorch's `checkpoint()` function**:
 
-**Location**: `megatron/core/transformer/attention.py:264`
+**Location**: `megatron/core/transformer/attention.py:298`
 
 ```python
 from megatron.core import tensor_parallel
@@ -742,7 +742,7 @@ hidden_states = tensor_parallel.checkpoint(
 
 ### Checkpointed Attention Forward
 
-**Location**: `megatron/core/transformer/attention.py:230-268`
+**Location**: `megatron/core/transformer/attention.py:264-302`
 
 ```python
 def _checkpointed_attention_forward(
@@ -796,7 +796,7 @@ def _checkpointed_attention_forward(
 
 **Why?** These modules have cheap outputs but expensive gradients.
 
-**Location**: Mentioned in `transformer_config.py:337-339`
+**Location**: Mentioned in `transformer_config.py:350-352`
 
 ```python
 """
@@ -828,7 +828,7 @@ AssertionError: recompute_granularity must not be full when CUDA Graphs are enab
 --cuda-graph-impl none
 ```
 
-**Location**: `megatron/training/arguments.py:1205`
+**Location**: `megatron/core/transformer/transformer_config.py:1587-1591`
 
 ---
 
@@ -852,7 +852,7 @@ AssertionError: recompute method is not yet supported for selective activation c
 --recompute-method uniform  # Error!
 ```
 
-**Location**: `megatron/training/arguments.py:914-916`
+**Location**: `megatron/training/arguments.py:929-932`
 
 ---
 

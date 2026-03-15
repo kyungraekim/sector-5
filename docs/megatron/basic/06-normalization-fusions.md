@@ -467,7 +467,7 @@ megatron/core/fusions/fused_layer_norm.py
    └─ Optimization: Standard fused kernel
 ```
 
-**File location**: `megatron/core/fusions/fused_layer_norm.py:1-170`
+**File location**: `megatron/core/fusions/fused_layer_norm.py:1-169`
 
 ### 4.2 Persistent vs Non-Persistent Kernels
 
@@ -722,7 +722,7 @@ def __init__(self, ...):
 
 ### 4.6 Memory-Efficient Variant
 
-**Configuration** (megatron/core/transformer/transformer_config.py:279-281):
+**Configuration** (megatron/core/transformer/transformer_config.py:292-294):
 ```python
 memory_efficient_layer_norm: bool = False
 """If True, and using local layers (not from TransformerEngine), tells Apex to use

@@ -159,7 +159,7 @@ By deferring `dW`, we unlock overlap potential because **input gradient communic
 
 #### Configuration Flag
 
-**megatron/core/model_parallel_config.py:246-247**
+**megatron/core/model_parallel_config.py:246**
 ```python
 delay_wgrad_compute: bool = False
 """
@@ -180,7 +180,7 @@ Incompatibilities:
 
 #### TE Layer Integration
 
-**megatron/core/extensions/transformer_engine.py:297-301**
+**megatron/core/extensions/transformer_engine.py:521-525**
 ```python
 if self.config.delay_wgrad_compute:
     if is_te_min_version("2.3.0"):
@@ -195,7 +195,7 @@ When `delay_wgrad_compute=True`, it's passed as a keyword argument to all TE lin
 
 The most critical integration is with Megatron's DistributedDataParallel (DDP) wrapper, which manages gradient reduction across data-parallel ranks.
 
-**megatron/core/distributed/distributed_data_parallel.py:344-366**
+**megatron/core/distributed/distributed_data_parallel.py:344-365**
 ```python
 # When delay_wgrad_compute is True and the param is marked with
 # skip_backward_post_hook, register the backward post hook for its module
@@ -239,7 +239,7 @@ else:
 
 With delay_wgrad enabled, TE layers expose a `backward_dw()` method that must be called explicitly to finalize weight gradients. This happens at specific points in the training loop.
 
-**Example from megatron/core/extensions/transformer_engine.py:1401-1407** (TEGroupedLinear):
+**Example from megatron/core/extensions/transformer_engine.py:1769-1775** (TEGroupedLinear):
 ```python
 def backward_dw(self):
     """
@@ -278,7 +278,7 @@ optimizer.step()
 
 #### Base Requirement: TE ≥2.3.0
 
-**Validation in transformer_engine.py:297-301**
+**Validation in transformer_engine.py:521-525**
 ```python
 if self.config.delay_wgrad_compute:
     if is_te_min_version("2.3.0"):
@@ -289,28 +289,21 @@ if self.config.delay_wgrad_compute:
 
 #### With Gradient Reduction Overlap: TE ≥2.8.0
 
-**Validation in transformer_config.py:1509-1513**
+**Validation in transformer_config.py:1700-1707**
 ```python
+# Check delay_wgrad_compute compatibility
 if self.delay_wgrad_compute:
     assert (
-        not self.overlap_grad_reduce
-        or is_te_min_version("2.8.0")
-    ), 'delay_wgrad_compute with overlap_grad_reduce requires TE ≥2.8.0'
+        self.overlap_moe_expert_parallel_comm
+    ), 'overlap_moe_expert_parallel_comm must be enabled when enabling delay_wgrad_compute'
+    assert (
+        not self.moe_use_legacy_grouped_gemm
+    ), 'delay_wgrad_compute is not supported with legacy groupedgemm implementation'
 ```
 
-When `overlap_grad_reduce=True`, Megatron overlaps DDP AllReduce with backward computation. This requires additional coordination with delay_wgrad, supported only in TE ≥2.8.0.
+#### MoE-Specific Requirements
 
-#### Without Gradient Accumulation Fusion: TE ≥2.7.0
-
-When NOT using `gradient_accumulation_fusion=True`, delay_wgrad requires TE ≥2.7.0 for correct gradient accumulation behavior across micro-batches.
-
-#### MoE-Specific Requirement
-
-**Validation in transformer_config.py:1513-1516**
-```python
-assert self.overlap_moe_expert_parallel_comm, (
-    'overlap_moe_expert_parallel_comm must be enabled when enabling delay_wgrad_compute'
-)
+`delay_wgrad_compute` requires `overlap_moe_expert_parallel_comm=True` and is incompatible with the legacy grouped GEMM implementation. These validations at `transformer_config.py:1700-1707` enforce both constraints.
 assert not self.moe_use_legacy_grouped_gemm, (
     'delay_wgrad_compute is not supported with legacy groupedgemm implementation'
 )
@@ -471,7 +464,7 @@ TE supports **four named userbuffer sets**, each corresponding to a specific lin
 - `"fc1"`: First MLP linear (up-projection)
 - `"fc2"`: Second MLP linear (down-projection)
 
-**megatron/core/extensions/transformer_engine.py:305-312**
+**megatron/core/extensions/transformer_engine.py:526-536**
 ```python
 if (
     self.config.tp_comm_overlap
@@ -492,7 +485,7 @@ If an invalid buffer name is provided, **userbuffer overlap is automatically dis
 
 **Deprecated API (TE <1.5.0):**
 
-**megatron/core/extensions/transformer_engine.py:333-342**
+**megatron/core/extensions/transformer_engine.py:556-566**
 ```python
 # OLD API (TE <1.5.0, deprecated but still supported for backward compat)
 else:
@@ -520,7 +513,7 @@ else:
 
 **Current API (TE ≥1.5.0):**
 
-**megatron/core/extensions/transformer_engine.py:316-327**
+**megatron/core/extensions/transformer_engine.py:540-551**
 ```python
 if is_te_min_version("1.5.0"):
     # Use old overlap flags if they were supplied instead
@@ -544,7 +537,7 @@ if is_te_min_version("1.5.0"):
 
 ### TE ≥1.6.0: dgrad Overlap
 
-**megatron/core/extensions/transformer_engine.py:533-545**
+**megatron/core/extensions/transformer_engine.py:786-798**
 ```python
 if is_te_min_version("1.6.0.dev0", check_equality=False):
     extra_kwargs["ub_overlap_rs_dgrad"] = (
@@ -573,7 +566,7 @@ if is_te_min_version("1.6.0.dev0", check_equality=False):
 
 ### Bulk Communication Flags
 
-**megatron/core/extensions/transformer_engine.py:524-525**
+**megatron/core/extensions/transformer_engine.py:777-778**
 ```python
 extra_kwargs["ub_bulk_wgrad"] = self.config.tp_comm_bulk_wgrad
 extra_kwargs["ub_bulk_dgrad"] = self.config.tp_comm_bulk_dgrad
@@ -713,7 +706,7 @@ For gradient accumulation with any strategy:
 
 **Critical:** Userbuffer overlap is **DISABLED** for expert layers in MoE models.
 
-**megatron/core/extensions/transformer_engine.py:329-331**
+**megatron/core/extensions/transformer_engine.py:552-555**
 ```python
 # Disable ub overlap for experts.
 if is_expert:
@@ -730,7 +723,7 @@ For MoE expert communication optimization, see [11-te-grouped-gemm-moe.md](11-te
 
 ### Buffer Name Registration
 
-**megatron/core/extensions/transformer_engine.py:549-553**
+**megatron/core/extensions/transformer_engine.py:567-571**
 ```python
 if is_te_min_version("1.0.0", check_equality=False):
     assert (
@@ -978,7 +971,7 @@ By exploiting symmetry, **2 ranks share 1 buffer** → 50% memory reduction for 
 
 #### Configuration Flag
 
-**megatron/core/transformer/transformer_config.py:690-691**
+**megatron/core/transformer/transformer_config.py:741-742**
 ```python
 symmetric_ar_type: Optional[str] = None
 """
@@ -996,7 +989,7 @@ Requires:
 
 #### Runtime Validation
 
-**megatron/core/extensions/transformer_engine.py:349-354** (TELinear integration):
+**megatron/core/extensions/transformer_engine.py:573-578** (TELinear integration):
 ```python
 if symmetric_ar_type is not None:
     assert is_torch_min_version("2.7.0a0"), "Must have at least torch version 2.7 or higher"
@@ -1014,17 +1007,13 @@ This prevents silent failures due to missing TE/PyTorch features.
 
 #### Validation in TransformerConfig
 
-**megatron/core/transformer/transformer_config.py:1543-1551**
+**megatron/core/transformer/transformer_config.py:1740-1748**
 ```python
 if self.symmetric_ar_type is not None:
-    if HAVE_TE:
-        assert self.symmetric_ar_type in [
-            "two_shot",
-            "one_shot",
-            "multimem_all_reduce",
-        ], f"symmetric_ar_type must be one of ['two_shot', 'one_shot', 'multimem_all_reduce'], got {self.symmetric_ar_type}"
-    else:
-        raise ValueError("symmetric_ar_type requires Transformer Engine")
+    assert is_torch_min_version("2.7.0a0"), "Must have at least torch version 2.7 or higher"
+    assert is_te_min_version("2.3.0") or get_te_version() == PkgVersion(
+        "2.3.0.dev0+39c0e70"
+    ), "Must have at least TE version 2.3 or higher to use symmetric memory all reduce"
 ```
 
 **Allowed values:**

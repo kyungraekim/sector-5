@@ -106,7 +106,7 @@ class AttnBackend(enum.Enum):
 --attention-backend local
 ```
 
-**Location**: `megatron/training/arguments.py:1562`
+**Location**: `megatron/training/arguments.py:1701`
 
 ```python
 group.add_argument(
@@ -124,7 +124,7 @@ When `--attention-backend auto` (default), Megatron selects based on:
 
 #### 1. **Flash Attention Detection**
 
-**Location**: `megatron/core/transformer/attention.py:51-86`
+**Location**: `megatron/core/transformer/attention.py:54-90`
 
 ```python
 # Try Flash Attention 3 (Hopper-optimized)
@@ -205,7 +205,7 @@ flowchart TD
 
 **Flash Decode** for inference decode phase:
 
-**Location**: `megatron/core/transformer/attention.py:478`
+**Location**: `megatron/core/transformer/attention.py:517`
 
 ```python
 assert flash_attn_with_kvcache is not None, (
@@ -568,7 +568,7 @@ export PYTORCH_JIT=0
 | `--bf16-enable-reduced-precision-reduction` | flag | True | Allow BF16 reduced-precision matmul reductions |
 | `--use-flash-attn-triton` | flag | False | Use Triton-based Flash Attention |
 
-**Location**: `megatron/training/arguments.py:2559`
+**Location**: `megatron/training/arguments.py`
 
 ---
 

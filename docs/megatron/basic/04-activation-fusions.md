@@ -61,14 +61,17 @@ Fused MLP:
 
 ```
 megatron/core/fusions/
-├── fused_bias_swiglu.py        # SwiGLU fusion (256 lines)
-├── fused_bias_geglu.py         # GEGLU + Quick-GEGLU fusion (443 lines)
-├── fused_bias_gelu.py          # Simple GELU fusion (56 lines)
-└── fused_weighted_squared_relu.py  # Squared ReLU fusion (111 lines)
+├── fused_bias_swiglu.py            # SwiGLU fusion (255 lines)
+├── fused_bias_geglu.py             # GEGLU + Quick-GEGLU fusion (442 lines)
+├── fused_bias_gelu.py              # Simple GELU fusion (55 lines)
+├── fused_weighted_squared_relu.py  # Squared ReLU fusion (110 lines)
+├── fused_mla_yarn_rope_apply.py    # MLA YaRN RoPE Triton kernel (782 lines)
+├── fused_pad_routing_map.py        # MoE routing map padding Triton kernel (100 lines)
+└── fused_indices_converter.py      # MoE indices conversion Triton kernel (287 lines)
 
 megatron/core/
 ├── activations.py              # Base activation functions
-└── transformer/mlp.py          # MLP integration (404 lines)
+└── transformer/mlp.py          # MLP integration (352 lines)
 ```
 
 ---
@@ -166,12 +169,12 @@ class BiasSwiGLUFunction(torch.autograd.Function):
 1. **FP8 Activation Storage**: Stores input in FP8 (E4M3 format) for backward pass
    - 50% memory reduction (FP16 → FP8)
    - Restores original precision before gradient computation
-   - Only for SwiGLU fusion (megatron/core/transformer/transformer_config.py:1270-1272)
+   - Only for SwiGLU fusion (megatron/core/transformer/transformer_config.py:1337-1339)
 
 2. **CPU Offloading**: Offloads activations to CPU RAM
    - Requires Transformer Engine integration
    - Enabled via `--cpu-offloading-activations` flag
-   - See megatron/core/transformer/mlp.py:193-195
+   - See megatron/core/transformer/mlp.py:204-206
 
 3. **Gradient Reuse**: Bias gradient equals input gradient
    - Both see same upstream gradient through addition
@@ -417,11 +420,11 @@ input = input.to(ctx.ori_input_dtype) if ctx.fp8_input_store else input
 **Trade-offs**:
 - **Pros**: 50% memory reduction, enables larger batch sizes
 - **Cons**: Precision loss during backprop (negligible for training)
-- **Compatibility**: Only SwiGLU supported (megatron/core/transformer/transformer_config.py:1270-1272)
+- **Compatibility**: Only SwiGLU supported (megatron/core/transformer/transformer_config.py:1337-1339)
 
 ### Usage in Standard MLP
 
-**Integration Point** (megatron/core/transformer/mlp.py:188-196):
+**Integration Point** (megatron/core/transformer/mlp.py:199-207):
 ```python
 elif self.activation_func == F.silu and self.config.gated_linear_unit:
     intermediate_parallel = bias_swiglu_impl(
@@ -447,7 +450,7 @@ elif self.activation_func == F.silu and self.config.gated_linear_unit:
 
 ### Usage in MoE Experts
 
-**Weighted SwiGLU Integration** (megatron/core/transformer/mlp.py:160-165):
+**Weighted SwiGLU Integration** (megatron/core/transformer/mlp.py:168-176):
 ```python
 if per_token_scale is not None:
     if self.activation_func == F.silu and self.config.gated_linear_unit:
@@ -694,7 +697,7 @@ With offset: GELU(x₁) · (x₂ + offset)
 Use case: DeepSeek-V3 sets offset = -0.5 for numerical stability
 ```
 
-**Usage** (megatron/core/transformer/mlp.py:209-211):
+**Usage** (megatron/core/transformer/mlp.py:220-222):
 ```python
 intermediate_parallel = self.config.activation_func(x_glu) * (
     x_linear + self.config.glu_linear_offset
@@ -730,7 +733,7 @@ if clamp_value is not None:
 - **Linear half** (`x_linear`): Symmetric bounds (can be negative)
 - **Typical value**: `clamp_value = 30.0` (prevents overflow in FP16)
 
-**Usage in MLP** (megatron/core/transformer/mlp.py:206-208):
+**Usage in MLP** (megatron/core/transformer/mlp.py:217-219):
 ```python
 if (val := self.config.activation_func_clamp_value) is not None:
     x_glu = x_glu.clamp(min=None, max=val)
@@ -739,7 +742,7 @@ if (val := self.config.activation_func_clamp_value) is not None:
 
 ### Usage in MLP
 
-**Standard GEGLU** (megatron/core/transformer/mlp.py:180-184):
+**Standard GEGLU** (megatron/core/transformer/mlp.py:191-195):
 ```python
 if self.activation_func == F.gelu:
     if self.config.gated_linear_unit:
@@ -748,7 +751,7 @@ if self.activation_func == F.gelu:
         )
 ```
 
-**Quick-GEGLU with Weights (MoE)** (megatron/core/transformer/mlp.py:166-174):
+**Quick-GEGLU with Weights (MoE)** (megatron/core/transformer/mlp.py:177-185):
 ```python
 elif self.activation_func == quick_gelu and self.config.gated_linear_unit:
     intermediate_parallel = weighted_bias_quick_geglu_impl(
@@ -837,7 +840,7 @@ bias_gelu_impl = GeLUFunction.apply
 
 ### Usage in MLP
 
-**Integration** (megatron/core/transformer/mlp.py:186-187):
+**Integration** (megatron/core/transformer/mlp.py:196-198):
 ```python
 else:  # Non-gated GELU
     assert self.config.add_bias_linear is True
@@ -1189,11 +1192,11 @@ With FP8 storage:
 Total savings (80 layers): (896 - 448) * 80 = 35.8 GB
 ```
 
-**Configuration Validation** (megatron/core/transformer/transformer_config.py:1270-1272):
+**Configuration Validation** (megatron/core/transformer/transformer_config.py:1337-1339):
 ```python
 if self.activation_func_fp8_input_store:
     if self.activation_func != F.silu or not self.gated_linear_unit:
-        raise ValueError("FP8 storage supported only for SwiGLU.")
+        raise ValueError("Storing activation input in FP8 is supported only for SwiGLU.")
 ```
 
 **Why Only SwiGLU?**:
@@ -1252,9 +1255,9 @@ When to use:
 **Requirements**:
 1. Transformer Engine ≥ 2.0
 2. `--cpu-offloading-activations` flag
-3. `HAVE_TE = True` (megatron/core/transformer/mlp.py:194-195)
+3. `HAVE_TE = True` (megatron/core/transformer/mlp.py:204-206)
 
-**Integration** (megatron/core/transformer/mlp.py:193-195):
+**Integration** (megatron/core/transformer/mlp.py:204-206):
 ```python
 cpu_offload_input = (
     self.config.cpu_offloading
@@ -1383,7 +1386,7 @@ if not args.add_bias_linear:
 
 ### Standard MLP Flow
 
-**Forward Pass Decision Tree** (megatron/core/transformer/mlp.py:148-221):
+**Forward Pass Decision Tree** (megatron/core/transformer/mlp.py:151-246):
 ```python
 def forward(self, hidden_states, per_token_scale=None):
     # Step 1: Linear projection FC1

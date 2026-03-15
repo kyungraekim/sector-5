@@ -76,7 +76,7 @@ TP=2, PP=16, EP=64, CP=1, DP=varies
 
 ### Overview
 
-At the core of Megatron's parallelism infrastructure is the **process group management system** implemented in `parallel_state.py:1-2687`. This module creates and manages **15+ specialized NCCL process groups**, each optimized for different communication patterns.
+At the core of Megatron's parallelism infrastructure is the **process group management system** implemented in `parallel_state.py:1-2143`. This module creates and manages **15+ specialized NCCL process groups**, each optimized for different communication patterns.
 
 ### Why Multiple Process Groups?
 
@@ -171,7 +171,7 @@ For **data-parallel groups**, Megatron enables **NVIDIA SHARP** (Scalable Hierar
 
 ### Implementation
 
-Implemented in `tensor_parallel/layers.py:1-1425`, Megatron provides:
+Implemented in `tensor_parallel/layers.py:1-1315`, Megatron provides:
 - `ColumnParallelLinear`: Splits weight columns across TP ranks
 - `RowParallelLinear`: Splits weight rows across TP ranks
 - `VocabParallelEmbedding`: Splits vocabulary across TP ranks
@@ -182,10 +182,10 @@ Let's examine exactly how weights and tensors are split and communicated in Colu
 
 #### ColumnParallelLinear: Weight Sharding and Data Flow
 
-**Weight Initialization** (`layers.py:834-876`):
+**Weight Initialization** (`layers.py:830-878`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:834-876
+# megatron/core/tensor_parallel/layers.py:830-878
 # Original weight shape: [output_size, input_size]
 # Each TP rank stores: [output_size_per_partition, input_size]
 
@@ -216,10 +216,10 @@ Rank 3: A[3072:4096, :] = A_3
 Memory: Each GPU stores 1/4 of output dimension
 ```
 
-**Forward Pass WITHOUT Sequence Parallelism** (`layers.py:991-1043`):
+**Forward Pass WITHOUT Sequence Parallelism** (`layers.py:987-1045`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:991-1043
+# megatron/core/tensor_parallel/layers.py:987-1045
 
 # Input shape: [seq_len, batch, hidden_in]
 # Example: [2048, 4, 1024]
@@ -252,10 +252,10 @@ else:
     # Result: [2048, 4, 1024] on each rank
 ```
 
-**Forward Pass WITH Sequence Parallelism** (`layers.py:470-483`):
+**Forward Pass WITH Sequence Parallelism** (`layers.py:472-485`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:470-483
+# megatron/core/tensor_parallel/layers.py:472-485
 
 # Input shape: [seq_len/tp_size, batch, hidden_in]
 # Example with TP=4: [512, 4, 1024] on each rank
@@ -277,10 +277,10 @@ output = torch.matmul(total_input, weight.t())
 # Note: gather_output typically False with sequence parallelism
 ```
 
-**Backward Pass** (`layers.py:487-572`):
+**Backward Pass** (`layers.py:487-577`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:487-572
+# megatron/core/tensor_parallel/layers.py:487-577
 
 def backward(ctx, grad_output):
     # grad_output shape: [seq_len, batch, output_per_partition]
@@ -370,10 +370,10 @@ Backward (with SP):
 
 #### RowParallelLinear: Weight Sharding and Data Flow
 
-**Weight Initialization** (`layers.py:1148-1201`):
+**Weight Initialization** (`layers.py:1144-1196`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:1148-1201
+# megatron/core/tensor_parallel/layers.py:1144-1196
 # Original weight shape: [output_size, input_size]
 # Each TP rank stores: [output_size, input_size_per_partition]
 
@@ -404,10 +404,10 @@ Rank 3: A[:, 3072:4096] = A_3
 Memory: Each GPU stores 1/4 of input dimension
 ```
 
-**Forward Pass** (`layers.py:1225-1281`):
+**Forward Pass** (`layers.py:1232-1288`):
 
 ```python
-# megatron/core/tensor_parallel/layers.py:1225-1281
+# megatron/core/tensor_parallel/layers.py:1232-1288
 
 # Input shape depends on input_is_parallel flag
 
@@ -521,10 +521,10 @@ Total for 2-layer MLP with TP=4:
 
 #### Sequence Parallelism: Detailed Communication
 
-**All-Gather Operation** (`mappings.py:114-150`):
+**All-Gather Operation** (`mappings.py:114-152`):
 
 ```python
-# megatron/core/tensor_parallel/mappings.py:114-150
+# megatron/core/tensor_parallel/mappings.py:114-152
 def _gather_along_first_dim(input_, group):
     """Gather tensors and concatenate along the first dimension."""
 
@@ -550,10 +550,10 @@ def _gather_along_first_dim(input_, group):
     return output
 ```
 
-**Reduce-Scatter Operation** (`mappings.py:156-176`):
+**Reduce-Scatter Operation** (`mappings.py:155-182`):
 
 ```python
-# megatron/core/tensor_parallel/mappings.py:156-176
+# megatron/core/tensor_parallel/mappings.py:155-182
 def _reduce_scatter_along_first_dim(input_, group):
     """Reduce-scatter tensors along the first dimension."""
 
@@ -722,10 +722,10 @@ handle = dist_all_gather_func(
 
 ### Gradient Accumulation Fusion
 
-From `layers.py:553-571`, Megatron fuses gradient accumulation directly into the all-reduce operation:
+From `layers.py:555-573`, Megatron fuses gradient accumulation directly into the all-reduce operation:
 
 ```python
-# megatron/core/tensor_parallel/layers.py:553-571
+# megatron/core/tensor_parallel/layers.py:555-573
 if ctx.gradient_accumulation_fusion:
     # Directly accumulate gradients in FP32 buffer
     # Avoids intermediate copy: grad_input → grad_input_fp32 → buffer
@@ -770,7 +770,7 @@ else:
 
 ### Implementation
 
-Pipeline parallelism is managed through `pipeline_parallel/schedules.py:1-2800`, which implements several sophisticated scheduling algorithms to minimize bubbles.
+Pipeline parallelism is managed through `pipeline_parallel/schedules.py:1-2306`, which implements several sophisticated scheduling algorithms to minimize bubbles.
 
 ### Pipeline Stages
 
@@ -1315,7 +1315,7 @@ optimizer.step()
 
 **Solution**: **Shard optimizer states** across DP ranks (ZeRO optimization).
 
-**From `optimizer/distrib_optimizer.py:1-3264`**, Megatron implements:
+**From `optimizer/distrib_optimizer.py:1-2603`**, Megatron implements:
 
 **ZeRO-1**: Shard optimizer states only
 - Each DP rank owns `1/DP_size` of optimizer states
@@ -2370,7 +2370,7 @@ for i, expert in enumerate(local_experts):
 
 **Grouped GEMM approach** (fast!):
 
-**From `megatron/core/transformer/moe/experts.py:100-150`**:
+**From `megatron/core/transformer/moe/experts.py:108-150`**:
 
 ```python
 class GroupedMLP(MegatronModule):
@@ -2593,12 +2593,31 @@ returned_tokens: [500, 4096]  # Back to original GPU 0 tokens
 final_output: [1000, 4096]    # Original token order restored
 ```
 
+#### HybridEP Dispatch
+
+**HybridEP** is an alternative dispatch backend (from the DeepEP library) that fuses all-to-all
+communication with expert computation for reduced memory overhead and improved overlap.
+
+**From `megatron/core/transformer/moe/token_dispatcher.py:942-1070`**, the `_HybridEPManager`
+implements:
+- Fused dispatch/combine operations via `hybrid_ep_dispatch()` and `hybrid_ep_combine()`
+- Support for 1F1B A2A overlap to reduce peak memory during pipeline-parallel MoE training
+- Requires `--moe-router-dtype=fp32` (HybridEP only supports float32 routing probabilities)
+
+**Configuration**:
+```bash
+--moe-token-dispatcher-type flex  # Enables HybridEP when available
+```
+
+**Install**: `pip install deep_ep` (requires the `HybridEPBuffer` from the `deep_ep` package)
+
 #### EP Performance Optimization Summary
 
 | **Optimization** | **Speedup** | **Where** |
 |-----------------|------------|-----------|
 | **Grouped GEMM** | 3-5× | Expert computation |
 | **All-to-all overlap** | 1.2-1.5× | Communication hiding |
+| **HybridEP dispatch** | 1.2-1.5× | Fused communication/compute |
 | **Load balancing** | 1.5-2× | Avoid idle GPUs |
 | **FP8 experts** | 1.5-2× | Reduce memory/communication |
 
@@ -2719,6 +2738,20 @@ Before finalizing configuration, verify:
 - [ ] `num_microbatches >= 4 × PP` (for low bubble)
 - [ ] `num_microbatches % PP == 0`
 - [ ] Sequence parallelism enabled if `TP > 1 and EP > 1`
+
+### Dynamic Resharding
+
+Megatron supports **online resharding** of model weights between different parallelism
+configurations without checkpointing to disk, via the `megatron/core/resharding/` module.
+
+**Key APIs** (from `megatron/core/resharding/__init__.py`):
+- `build_centralized_reshard_plan()` - Plan weight transfers between source/target configs
+- `execute_reshard_plan()` - Execute the planned transfers via NCCL or Gloo
+- `reshard_model_weights()` / `swap_model_weights()` - High-level weight migration
+
+**Use case**: RL training where rollout generation uses different parallelism (e.g., TP=1)
+than training (e.g., TP=8). Resharding allows switching configs without saving/loading
+checkpoints.
 
 ---
 
@@ -2999,11 +3032,11 @@ With proper configuration, communication can be almost entirely hidden:
 ## References and Further Reading
 
 **Key Source Files**:
-- `megatron/core/parallel_state.py:1-2687` - Process group management
-- `megatron/core/tensor_parallel/layers.py:1-1425` - Tensor parallelism implementation
-- `megatron/core/pipeline_parallel/schedules.py:1-2800` - Pipeline scheduling
-- `megatron/core/distributed/param_and_grad_buffer.py:1-1007` - Gradient bucketing
-- `megatron/core/optimizer/distrib_optimizer.py:1-3264` - Distributed optimizer
+- `megatron/core/parallel_state.py:1-2143` - Process group management
+- `megatron/core/tensor_parallel/layers.py:1-1315` - Tensor parallelism implementation
+- `megatron/core/pipeline_parallel/schedules.py:1-2306` - Pipeline scheduling
+- `megatron/core/distributed/param_and_grad_buffer.py:1-1016` - Gradient bucketing
+- `megatron/core/optimizer/distrib_optimizer.py:1-2603` - Distributed optimizer
 
 **Related Documentation**:
 - [Communication Overlap](02-communication-overlap.md) - Detailed analysis of overlap techniques

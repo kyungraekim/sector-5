@@ -117,7 +117,7 @@ FlashAttention kernels are used in three primary contexts:
 
 FlashAttention 2's variable-length kernel handles packed sequences efficiently, critical for training with varying sequence lengths.
 
-**megatron/core/transformer/attention.py:583-605**
+**megatron/core/transformer/attention.py:640-665**
 ```python
 # FlashAttention 2 path (used when FA3 not available)
 output_total = flash_attn_varlen_func(
@@ -141,7 +141,7 @@ output_total = flash_attn_varlen_func(
 
 ### KV Cache Path for Inference
 
-**megatron/core/transformer/attention.py:478-503**
+**megatron/core/transformer/attention.py:517-540**
 ```python
 def flash_decode(
     self,
@@ -215,7 +215,7 @@ FlashAttention 3 provides Hopper-specific optimizations using new hardware featu
 
 ### FA3 Integration Path
 
-**megatron/core/transformer/attention.py:544-580**
+**megatron/core/transformer/attention.py:563-600**
 ```python
 if HAVE_FA3:
     # TODO(ksanthanam): Replace with call to flash_attn_varlen_func once
@@ -249,7 +249,7 @@ if HAVE_FA3:
 
 ### FA3 with KV Cache
 
-**megatron/core/transformer/attention.py:634-637**
+**megatron/core/transformer/attention.py:686-694**
 ```python
 flash_attn_args = {
     "q": q,
@@ -290,7 +290,7 @@ Flash decode is a specialized optimization for the **decode phase** of inference
 
 ### Configuration
 
-**megatron/core/transformer/transformer_config.py:675-676**
+**megatron/core/transformer/transformer_config.py:719-720**
 ```python
 flash_decode: bool = False
 """ Use the optimized flash decoding kernel during inference. """
@@ -303,7 +303,7 @@ flash_decode: bool = False
 
 ### Integration Logic
 
-**megatron/core/transformer/attention.py:697-770**
+**megatron/core/transformer/attention.py:755-840**
 ```python
 # hidden_states: [sq, b, h]
 is_inference_mode = inference_context is not None and not self.training
@@ -347,7 +347,7 @@ if in_decode_mode and self.config.flash_decode:
 
 ### CUDA Graphs Requirement
 
-**megatron/core/transformer/attention.py:792-797**
+**megatron/core/transformer/attention.py:866-873**
 ```python
 # flash decode can only use CUDA graphs for static-batching inference
 if (
@@ -570,7 +570,7 @@ def apply_fused_qk_rotary_emb(
 
 ### Integration into Attention Forward
 
-**megatron/core/transformer/attention.py:427-429**
+**megatron/core/transformer/attention.py:428-430**
 ```python
 # Apply rotary embeddings before appending KV cache.
 if inference_context.use_flashinfer_fused_rope and (rotary_pos_cos_sin is not None):
@@ -735,7 +735,7 @@ Speedup: ~2.5x
 
 The `flash_decode_and_prefill` method handles both prefill (first pass) and decode (subsequent passes) in a unified code path.
 
-**megatron/core/transformer/attention.py:506-638**
+**megatron/core/transformer/attention.py:508-700**
 ```python
 def flash_decode_and_prefill(
     self,

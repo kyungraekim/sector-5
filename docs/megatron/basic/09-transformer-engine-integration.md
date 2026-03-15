@@ -41,7 +41,7 @@ NVIDIA Transformer Engine (TE) is a library for accelerating Transformer models 
 
 Megatron detects TE availability at import time with graceful fallback:
 
-**megatron/core/extensions/transformer_engine.py:57-65**
+**megatron/core/extensions/transformer_engine.py:64-73**
 ```python
 try:
     import transformer_engine as te
@@ -54,7 +54,7 @@ except ImportError:
     HAVE_TE = False
 ```
 
-**Version Detection** (megatron/core/utils.py:305-342):
+**Version Detection** (megatron/core/utils.py:319-356):
 ```python
 def get_te_version():
     """Get TE version from __version__; if not available use pip's. Use caching."""
@@ -130,7 +130,7 @@ te.pytorch.GroupedLinear        →     TEGroupedLinear
 
 ### TENorm: Universal Normalization Wrapper
 
-**megatron/core/extensions/transformer_engine.py:205-239**
+**megatron/core/extensions/transformer_engine.py:429-463**
 ```python
 class TENorm:
     """A conditional wrapper to initialize an instance of
@@ -863,7 +863,7 @@ def is_float8tensor(tensor: torch.Tensor) -> bool:
 
 ### FP8 Configuration Options
 
-**megatron/core/transformer/transformer_config.py:344-398**
+**megatron/core/transformer/transformer_config.py:354-411**
 ```python
 ####################
 # fp8 related
@@ -1358,5 +1358,5 @@ Transformer Engine integration in Megatron provides:
 
 **Related Optimizations:**
 - See [10-fp8-training.md](10-fp8-training.md) for FP8 deep dive (Phase 3)
-- See [11-te-optimizations.md](11-te-optimizations.md) for advanced TE features (Phase 3)
+- See [11-te-fused-operations.md](11-te-fused-operations.md) for advanced TE features (Phase 3)
 - See [16-flash-attention-optimizations.md](16-flash-attention-optimizations.md) for TE's attention

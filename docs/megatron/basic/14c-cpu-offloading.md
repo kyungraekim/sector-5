@@ -85,7 +85,7 @@ Now fits on 80GB GPUs! (with some headroom)
 
 ### Megatron Implementation
 
-Megatron's CPU offloading is implemented via `HybridDeviceOptimizer` in `megatron/core/optimizer/cpu_offloading/hybrid_optimizer.py` (473 lines).
+Megatron's CPU offloading is implemented via `HybridDeviceOptimizer` in `megatron/core/optimizer/cpu_offloading/hybrid_optimizer.py` (472 lines).
 
 **Key Features**:
 - **Hybrid GPU/CPU optimization**: Split parameters between GPU and CPU based on `offload_fraction`
@@ -156,6 +156,7 @@ def _get_sub_optimizer_param_groups(self, offload_fraction: float):
         gpu_param_groups,
         gpu_params_map_cpu_copy,
         cpu_copys_map_gpu_param,
+        param_to_fp32_param,
     )
 ```
 
@@ -194,15 +195,12 @@ Pinned Memory:
 - Transfer Speed: ~12-16 GB/s (PCIe Gen4), ~25 GB/s (PCIe Gen5)
 ```
 
-**Allocation** (`hybrid_optimizer.py:109-112`):
+**Allocation** (`hybrid_optimizer.py:109-111`):
 
 ```python
-# megatron/core/optimizer/cpu_offloading/hybrid_optimizer.py:109-112
+# megatron/core/optimizer/cpu_offloading/hybrid_optimizer.py:109-111
 self.cpu_copy_map_grad[param] = torch.empty(
-    param.shape,
-    dtype=param.dtype,
-    pin_memory=self.pin_cpu_grads,  # Enable pinned memory
-    device="cpu"
+    param.shape, dtype=param.dtype, pin_memory=self.pin_cpu_grads, device="cpu"
 )
 ```
 
@@ -382,6 +380,9 @@ def _set_sub_optimizer_grads(self):
             grad = getattr(param, "decoupled_grad", param.grad)
             if grad is not None:
                 fp32_param.grad = grad.to(fp32_param.dtype)
+                fp32_param.requires_grad = True
+            else:
+                fp32_param.requires_grad = False
 
     # Transfer gradients from GPU to CPU (for offloaded params)
     for optimizer in self.cpu_optimizers:
@@ -393,13 +394,11 @@ def _set_sub_optimizer_grads(self):
                 param.requires_grad = False
                 continue
 
+            param.requires_grad = False
             # Allocate pinned CPU memory for gradient (if not exists)
             if param not in self.cpu_copy_map_grad:
                 self.cpu_copy_map_grad[param] = torch.empty(
-                    param.shape,
-                    dtype=param.dtype,
-                    pin_memory=self.pin_cpu_grads,
-                    device="cpu"
+                    param.shape, dtype=param.dtype, pin_memory=self.pin_cpu_grads, device="cpu"
                 )
                 param.grad = self.cpu_copy_map_grad[param]
 
@@ -754,4 +753,4 @@ Where:
 
 **Document Version**: 1.0
 **Last Updated**: 2025-12-25
-**Lines**: ~475
+**Lines**: ~480

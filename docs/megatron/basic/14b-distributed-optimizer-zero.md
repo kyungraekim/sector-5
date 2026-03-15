@@ -574,10 +574,10 @@ After AllGather (all ranks have full params):
 ... (same for all ranks)
 ```
 
-**Implementation** (`param_and_grad_buffer.py:221-271`):
+**Implementation** (`param_and_grad_buffer.py:226-275`):
 
 ```python
-# megatron/core/distributed/param_and_grad_buffer.py:221-271
+# megatron/core/distributed/param_and_grad_buffer.py:226-275
 def start_param_sync(self, force_sync: bool = False):
     """
     Initiates all necessary param all-gathers for this bucket.

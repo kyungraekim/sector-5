@@ -139,7 +139,7 @@ This document provides kernel-level analysis of MoE optimizations in Megatron:
 **Related documents**:
 - **[MOE_TRAINING_GUIDE.md](../../../MOE_TRAINING_GUIDE.md)**: Training workflows (complements this)
 - **[01-parallelism-strategies.md](./01-parallelism-strategies.md)**: Expert parallelism fundamentals
-- **[11-te-optimizations.md](./11-te-optimizations.md)**: TEGroupedLinear implementation details
+- **[11-te-grouped-gemm-moe.md](./11-te-grouped-gemm-moe.md)**: TEGroupedLinear implementation details
 
 ---
 
@@ -343,13 +343,13 @@ of hard capacity constraints.
 
 ### 3.1 Dispatcher Architecture Overview
 
-**File**: `megatron/core/transformer/moe/token_dispatcher.py` (~1,200 lines)
+**File**: `megatron/core/transformer/moe/token_dispatcher.py` (~1,520 lines)
 
 **Three dispatcher types** in Megatron:
 
-1. **MoEAllGatherTokenDispatcher** (lines 197-331): Simpler, for smaller scale
-2. **MoEAlltoAllTokenDispatcher** (lines 333-862): **Production standard**, expert parallelism
-3. **MoEFlexTokenDispatcher** (lines 1138-1328): **Experimental**, DeepEP fused dispatch
+1. **MoEAllGatherTokenDispatcher** (lines 208-347): Simpler, for smaller scale
+2. **MoEAlltoAllTokenDispatcher** (lines 348-1319): **Production standard**, expert parallelism
+3. **MoEFlexTokenDispatcher** (lines 1320-1520): Supports DeepEP and HybridEP fused dispatch
 
 **Workflow abstraction**:
 ```python
@@ -388,7 +388,7 @@ class TokenDispatcher:
 
 #### 3.2.1 Preprocess: Communication Metadata
 
-**Compute token distribution** (megatron/core/transformer/moe/token_dispatcher.py:429-550):
+**Compute token distribution** (megatron/core/transformer/moe/token_dispatcher.py:469-568):
 
 ```python
 def preprocess(self, routing_map: torch.Tensor):
@@ -453,7 +453,7 @@ def preprocess(self, routing_map: torch.Tensor):
 **Challenge**: Sending split sizes to AlltoAll requires CPU copies (CUDA → Host), causing
 GPU stall.
 
-**Solution**: Prioritized sync points (megatron/core/transformer/moe/token_dispatcher.py:410-423):
+**Solution**: Prioritized sync points (megatron/core/transformer/moe/token_dispatcher.py:425-435):
 
 ```python
 # Synchronization point priorities (lower = earlier)
@@ -493,7 +493,7 @@ def _maybe_dtoh_and_synchronize(self, point: str, tokens_per_expert=None):
 
 #### 3.2.3 Token Dispatch (AlltoAll)
 
-**AlltoAll communication** (megatron/core/transformer/moe/token_dispatcher.py:607-633):
+**AlltoAll communication** (megatron/core/transformer/moe/token_dispatcher.py:647-673):
 
 ```python
 def token_dispatch(self, permutated_local_input_tokens, permuted_probs):
@@ -542,7 +542,7 @@ After AlltoAll:
 
 #### 3.2.4 Dispatch Postprocess (AllGather + Sort)
 
-**AllGather across TP** (megatron/core/transformer/moe/token_dispatcher.py:635-704):
+**AllGather across TP** (megatron/core/transformer/moe/token_dispatcher.py:675-730):
 
 ```python
 def dispatch_postprocess(self, global_input_tokens, global_probs):
@@ -613,7 +613,7 @@ def dispatch_postprocess(self, global_input_tokens, global_probs):
 
 ### 3.3 Token Permutation Algorithm
 
-**Core permutation logic** (megatron/core/transformer/moe/moe_utils.py:219-303):
+**Core permutation logic** (megatron/core/transformer/moe/moe_utils.py:228-308):
 
 ```python
 def permute(
@@ -721,7 +721,7 @@ Layout for GroupedGEMM:
 
 ### 4.1 TopKRouter Architecture
 
-**File**: `megatron/core/transformer/moe/router.py` (600 lines)
+**File**: `megatron/core/transformer/moe/router.py` (593 lines)
 
 **Class structure**:
 ```python
@@ -739,7 +739,7 @@ class TopKRouter(torch.nn.Module):
 
 ### 4.2 Router Gating
 
-**Learnable gate** (megatron/core/transformer/moe/router.py:77-99):
+**Learnable gate** (megatron/core/transformer/moe/router.py:78-99):
 
 ```python
 def gating(self, input: torch.Tensor):
@@ -781,7 +781,7 @@ def gating(self, input: torch.Tensor):
 
 ### 4.3 Score Functions and Top-K Selection
 
-**Routing function** (megatron/core/transformer/moe/router.py:471-535):
+**Routing function** (megatron/core/transformer/moe/router.py:495-562):
 
 ```python
 def routing(self, logits: torch.Tensor):
@@ -872,7 +872,7 @@ def sigmoid_routing(logits, top_k):
 
 #### 4.4.1 Standard Auxiliary Loss
 
-**Implementation** (megatron/core/transformer/moe/router.py:269-295):
+**Implementation** (megatron/core/transformer/moe/router.py:270-296):
 
 ```python
 def _apply_aux_loss(self, probs, scores_for_aux_loss, routing_map):
@@ -915,7 +915,7 @@ def _apply_aux_loss(self, probs, scores_for_aux_loss, routing_map):
     return aux_loss
 ```
 
-**Loss computation** (megatron/core/transformer/moe/moe_utils.py:35-112):
+**Loss computation** (megatron/core/transformer/moe/moe_utils.py:44-121):
 
 ```python
 def switch_load_balancing_loss_func(
@@ -941,7 +941,7 @@ def switch_load_balancing_loss_func(
 
 #### 4.4.2 Sequence-Level Auxiliary Loss
 
-**Per-sequence load balancing** (megatron/core/transformer/moe/router.py:297-339):
+**Per-sequence load balancing** (megatron/core/transformer/moe/router.py:298-340):
 
 ```python
 def _apply_seq_aux_loss(self, probs, scores_for_aux_loss, routing_map, seq_length, bsz):
@@ -982,7 +982,7 @@ def _apply_seq_aux_loss(self, probs, scores_for_aux_loss, routing_map, seq_lengt
 
 #### 4.4.3 Global Auxiliary Loss with Exponential Moving Average
 
-**Long-term load balancing** (megatron/core/transformer/moe/router.py:341-377):
+**Long-term load balancing** (megatron/core/transformer/moe/router.py:342-377):
 
 ```python
 def _apply_global_aux_loss(self, probs, scores_for_aux_loss, routing_map):
@@ -1025,7 +1025,7 @@ def _apply_global_aux_loss(self, probs, scores_for_aux_loss, routing_map):
 
 **Z-Loss** (ST-MoE paper, encourages small router logits):
 
-**Implementation** (megatron/core/transformer/moe/router.py:415-448):
+**Implementation** (megatron/core/transformer/moe/router.py:430-462):
 
 ```python
 def apply_z_loss(self, logits):
@@ -1054,7 +1054,7 @@ def apply_z_loss(self, logits):
     return logits
 ```
 
-**Loss computation** (megatron/core/transformer/moe/moe_utils.py:115-127):
+**Loss computation** (megatron/core/transformer/moe/moe_utils.py:124-136):
 
 ```python
 def z_loss_func(logits, z_loss_coeff):
@@ -1098,7 +1098,7 @@ Megatron provides three expert implementations with different trade-offs:
 
 ### 5.2 GroupedMLP with GroupedGEMM
 
-**File**: `megatron/core/transformer/moe/experts.py:100-744`
+**File**: `megatron/core/transformer/moe/experts.py:108-553`
 
 #### 5.2.1 Architecture
 
@@ -1160,7 +1160,7 @@ weight2: [ffn_hidden * num_experts, hidden_size]
 
 #### 5.2.2 Forward Pass with GroupedGEMM
 
-**Complete forward** (megatron/core/transformer/moe/experts.py:247-306):
+**Complete forward** (megatron/core/transformer/moe/experts.py:260-320):
 
 ```python
 def forward(self, permuted_local_hidden_states, tokens_per_expert, permuted_probs):
@@ -1236,7 +1236,7 @@ output = gg.ops.gmm(
 
 ### 5.3 TEGroupedMLP with Transformer Engine
 
-**File**: `megatron/core/transformer/moe/experts.py:746-1012`
+**File**: `megatron/core/transformer/moe/experts.py:554-828`
 
 #### 5.3.1 Architecture
 
@@ -1285,7 +1285,7 @@ class TEGroupedMLP(MegatronModule):
 
 #### 5.3.2 Forward with FP8 and Fused Activations
 
-**Complete forward** (megatron/core/transformer/moe/experts.py:842-963):
+**Complete forward** (megatron/core/transformer/moe/experts.py:655-760):
 
 ```python
 def forward(self, permuted_local_hidden_states, tokens_per_expert, permuted_probs):
@@ -1387,7 +1387,7 @@ def fp8_padding(self, hidden_states, tokens_per_expert):
 
 ### 5.4 SequentialMLP (Fallback)
 
-**File**: `megatron/core/transformer/moe/experts.py:1014-1167`
+**File**: `megatron/core/transformer/moe/experts.py:830-985`
 
 **Simple sequential execution**:
 
@@ -1487,7 +1487,7 @@ pip install grouped-gemm --no-build-isolation
 
 **Source**: https://github.com/fanshiqing/grouped_gemm (version 1.1.4+)
 
-**Interface** (megatron/core/transformer/moe/grouped_gemm_util.py:1-23):
+**Interface** (megatron/core/transformer/moe/grouped_gemm_util.py:1-22):
 
 ```python
 try:
@@ -1783,13 +1783,43 @@ Output = Shared + Routed_1 + Routed_2
 
 **Implementation status in Megatron**: Partial (shared experts supported, segmentation TBD)
 
+#### 7.4.1 Shared Expert Gate (Qwen3-Next)
+
+**New feature**: Gating mechanism for shared experts, enabling the model to learn when to
+activate shared expert contributions.
+
+**Configuration** (`transformer_config.py:466`):
+```python
+moe_shared_expert_gate: bool = False
+"""Enable gate for shared expert. Only effective when
+moe-shared-expert-intermediate-size is set."""
+```
+
+**Usage** (`moe_layer.py:201`):
+```python
+self.shared_experts = build_module(
+    self.submodules.shared_experts,
+    config=self.config,
+    pg_collection=pg_collection,
+    gate=self.config.moe_shared_expert_gate,
+)
+```
+
+**CLI flag**:
+```bash
+--moe-shared-expert-gate  # Enable gating for shared expert (Qwen3-Next style)
+```
+
+**When to use**: Models that benefit from learned shared-expert gating (e.g., Qwen3-Next
+architecture) rather than always-on shared experts.
+
 ---
 
 ## 8. MoELayer Orchestration
 
 ### 8.1 Complete Forward Pass
 
-**File**: `megatron/core/transformer/moe/moe_layer.py:250-294`
+**File**: `megatron/core/transformer/moe/moe_layer.py:317-373`
 
 **High-level flow**:
 
@@ -1856,7 +1886,7 @@ class MoELayer(MegatronModule):
 
 ### 8.2 Routing and Preprocessing
 
-**Router invocation** (megatron/core/transformer/moe/moe_layer.py:169-182):
+**Router invocation** (megatron/core/transformer/moe/moe_layer.py:310-315):
 
 ```python
 def router_and_preprocess(self, hidden_states):
@@ -1889,7 +1919,7 @@ def router_and_preprocess(self, hidden_states):
 
 ### 8.3 Dispatch Phase
 
-**Token dispatch** (megatron/core/transformer/moe/moe_layer.py:184-199):
+**Token dispatch** (megatron/core/transformer/moe/moe_layer.py:239-246):
 
 ```python
 def dispatch(self, hidden_states, probs):
@@ -1932,7 +1962,7 @@ def dispatch(self, hidden_states, probs):
 
 ### 8.4 Expert Computation
 
-**Expert forward** (megatron/core/transformer/moe/moe_layer.py:219-235):
+**Expert forward** (megatron/core/transformer/moe/moe_layer.py:277-291):
 
 ```python
 def routed_experts_compute(self, dispatched_input, probs, residual):
@@ -1960,7 +1990,7 @@ def routed_experts_compute(self, dispatched_input, probs, residual):
 
 ### 8.5 Combine Phase
 
-**Token combine** (megatron/core/transformer/moe/moe_layer.py:201-217):
+**Token combine** (megatron/core/transformer/moe/moe_layer.py:293-308):
 
 ```python
 def combine(self, expert_output, shared_expert_output=None):
@@ -2509,7 +2539,63 @@ class FusedCombine(torch.autograd.Function):
 - Requires specific TE version
 - May have compatibility issues with some features
 
-### 12.2 Heterogeneous Expert Sizes
+### 12.2 HybridEP Dispatch
+
+**File**: `megatron/core/transformer/moe/token_dispatcher.py:942-1070`
+
+**Concept**: Combine regular EP all-to-all with DeepEP fused dispatch in a single hybrid
+dispatch, using the DeepEP library's optimized kernels for inter-node communication while
+using standard NCCL for intra-node.
+
+**Manager class**: `_HybridEPManager` (token_dispatcher.py:942) coordinates:
+- Inter-node communication via DeepEP fused kernels
+- Intra-node communication via standard AlltoAll
+- Automatic selection based on rank topology
+
+**Usage**: Enabled via the `MoEFlexTokenDispatcher` (line 1320+) when both DeepEP and
+HybridEP are configured:
+
+```bash
+--moe-token-dispatcher-type flex \
+--moe-enable-deepep \
+--moe-deepep-hybrid-ep  # Enable HybridEP mode
+```
+
+**Benefits over pure DeepEP**:
+- Better intra-node bandwidth utilization (NCCL optimized for NVLink)
+- DeepEP's custom kernels optimized for RDMA inter-node transfers
+- Reduced SM contention (fewer SMs needed for intra-node communication)
+
+### 12.3 CUDA Graph Support for MoE
+
+**File**: `megatron/core/transformer/moe/moe_layer.py:207-209`
+
+MoE layers now support partial CUDA graph capture via the `@maybe_skip_or_early_return_by_cudagraph`
+decorator, applied to key methods:
+
+```python
+@maybe_skip_or_early_return_by_cudagraph("route")
+def route(self, hidden_states):
+    ...
+
+@maybe_skip_or_early_return_by_cudagraph("preprocess")
+def preprocess(self, hidden_states, probs, routing_map):
+    ...
+
+@maybe_skip_or_early_return_by_cudagraph("shared_experts_compute")
+def shared_experts_compute(self, hidden_states):
+    ...
+```
+
+**Key components**:
+- `MoECudaGraphTensorStore` (moe_layer.py:207): Stores tensors for resuming forward pass
+  after CUDA graph segment
+- `MoECudaGraphPartialCaptureSignal`: Signals when to break out of graph capture for
+  dynamic operations (e.g., AlltoAll with variable splits)
+
+**When to use**: Inference workloads with fixed-capacity MoE (requires `--moe-pad-expert-input-to-capacity`).
+
+### 12.4 Heterogeneous Expert Sizes
 
 **Concept**: Different experts have different architectures (hidden sizes, depths).
 
@@ -2544,7 +2630,7 @@ class HeterogeneousExperts(torch.nn.ModuleList):
 
 **Status in Megatron**: Not officially supported (requires custom implementation).
 
-### 12.3 Hierarchical MoE
+### 12.5 Hierarchical MoE
 
 **Concept**: MoE of MoEs (nested expert structure).
 
@@ -2569,7 +2655,7 @@ Expert computation
 - Additional routing overhead
 - Not yet implemented in Megatron
 
-### 12.4 Dynamic Expert Selection (Inference)
+### 12.6 Dynamic Expert Selection (Inference)
 
 **Concept**: Adjust expert selection at inference time based on latency constraints.
 
@@ -2594,7 +2680,7 @@ def adaptive_routing(logits, target_latency):
 
 **Status**: Experimental (not standard in Megatron).
 
-### 12.5 MoE Quantization
+### 12.7 MoE Quantization
 
 **FP8 MoE** (TE integration):
 - Expert weights quantized to FP8 E4M3 (forward) / E5M2 (backward)
@@ -2644,10 +2730,10 @@ similar computational cost. Key optimizations:
 **Further reading**:
 - [MOE_TRAINING_GUIDE.md](../../../MOE_TRAINING_GUIDE.md): Training workflows and best practices
 - [01-parallelism-strategies.md](./01-parallelism-strategies.md): Expert parallelism fundamentals
-- [11-te-optimizations.md](./11-te-optimizations.md): TEGroupedLinear deep dive
+- [11-te-grouped-gemm-moe.md](./11-te-grouped-gemm-moe.md): TEGroupedLinear deep dive
 
 ---
 
 **Document Status**: Complete (1,677 lines)
 **Last Updated**: 2025-12-22
-**Next Document**: [11-te-optimizations.md](./11-te-optimizations.md)
+**Next Document**: [11-te-grouped-gemm-moe.md](./11-te-grouped-gemm-moe.md)

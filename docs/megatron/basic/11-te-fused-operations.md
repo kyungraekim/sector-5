@@ -829,7 +829,7 @@ FP8 attention quantizes the **attention computation** (Q·K^T and attention·V) 
 
 **Configuration flag:**
 
-**megatron/core/transformer/transformer_config.py:388-389**
+**megatron/core/transformer/transformer_config.py:401-402**
 ```python
 fp8_dot_product_attention: bool = False
 """Enable FP8 for Q·K^T matmul in attention."""
@@ -864,7 +864,7 @@ Savings: 69 GB (50%)
 
 **Configuration flag:**
 
-**megatron/core/transformer/transformer_config.py:391-393**
+**megatron/core/transformer/transformer_config.py:404-405**
 ```python
 fp8_multi_head_attention: bool = False
 """Enable FP8 for full multi-head attention (Q·K^T and attention·V)."""

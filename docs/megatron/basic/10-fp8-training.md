@@ -12,7 +12,7 @@ FP8 (8-bit floating point) training enables 2-3x throughput improvements on NVID
 
 **Related Documents:**
 - [09-transformer-engine-integration.md](09-transformer-engine-integration.md) - TE wrapper architecture
-- [11-te-optimizations.md](11-te-optimizations.md) - Advanced TE features (Phase 3)
+- [11-te-fused-operations.md](11-te-fused-operations.md) - Advanced TE features (Phase 3)
 - [12-te-configuration-reference.md](12-te-configuration-reference.md) - Complete FP8 config reference
 
 ---
@@ -209,7 +209,7 @@ if config.fp8_recipe == Fp8Recipe.delayed:
 
 ### Configuration Options
 
-**AMAX History Length** (transformer_config.py:374-375):
+**AMAX History Length** (transformer_config.py:387-388):
 ```python
 fp8_amax_history_len: int = 1
 """The length of the amax history window used for scaling factor computation."""
@@ -220,7 +220,7 @@ fp8_amax_history_len: int = 1
 - `amax_history_len=1024`: Very stable, used for large-scale training
 - `amax_history_len=512`: Good balance for most cases
 
-**AMAX Compute Algorithm** (transformer_config.py:377-382):
+**AMAX Compute Algorithm** (transformer_config.py:390-395):
 ```python
 fp8_amax_compute_algo: str = "most_recent"
 """Algorithm used for choosing the `amax` value for the scaling factor computation. There are 2
@@ -234,7 +234,7 @@ while in TE 1.4 or later, the default is `most_recent`.
 - `"max"`: `amax = max(amax_history)` - Conservative, prevents overflow
 - `"most_recent"`: `amax = amax_history[-1]` - Adaptive, faster convergence
 
-**Margin** (transformer_config.py:366-367):
+**Margin** (transformer_config.py:379-380):
 ```python
 fp8_margin: int = 0
 """Margin for the scaling factor computation."""
@@ -486,7 +486,7 @@ def _resolve_callable_from_python_import_path(dotted_path: str):
 
 ### Configuration
 
-**transformer_config.py:362-364**
+**transformer_config.py:375-377**
 ```python
 fp8_quantizer_factory: Optional[str] = None
 """Python import path to a callable quantizer factory, e.g., package.module.quantizer_factory.
@@ -728,7 +728,7 @@ Reduce AMAX across: TP only
 Result: Each DP/CP rank has own AMAX, own scaling factor
 ```
 
-**Configuration** (transformer_config.py:394-395):
+**Configuration** (transformer_config.py:407-408):
 ```python
 tp_only_amax_red: bool = False
 """When set to True, reduce the FP8 AMAX only in the TP or TP-CP domain"""
@@ -780,7 +780,7 @@ Keep model parameters in FP8 to save memory.
 
 ### Configuration
 
-**transformer_config.py:355-360**
+**transformer_config.py:368-373**
 ```python
 fp8_param: bool = False
 """If set, keep the parameters in fp8 precision to save memory. This option must be used
@@ -790,7 +790,7 @@ primarily the weights of GEMMs. The specific parameters that will be converted t
 determined by TE."""
 ```
 
-**Validation** (transformer_config.py:814-815):
+**Validation** (transformer_config.py:871-872):
 ```python
 if self.fp8_param and not self.fp8:
     raise ValueError("fp8_param must be used together with fp8 mode.")
@@ -877,7 +877,7 @@ FP8 training requires careful tuning to maintain convergence.
 
 ### First/Last Layers in BF16
 
-**Configuration** (transformer_config.py:397-401):
+**Configuration** (transformer_config.py:410-414):
 ```python
 first_last_layers_bf16: bool = False
 """If True, retains first and last N TransformerBlocks in BF16 as opposed to FP8."""
@@ -899,7 +899,7 @@ if not need_fp8_context or is_first_last_bf16_layer(config, layer_no):
 
 ### Gradient Computation Precision
 
-**transformer_config.py:384-386**
+**transformer_config.py:397-399**
 ```python
 fp8_wgrad: bool = True
 """When set to False, override FP8 config options and do the wgrad computation
@@ -1164,5 +1164,5 @@ FP8 training in Megatron provides:
 
 **Related Optimizations:**
 - See [09-transformer-engine-integration.md](09-transformer-engine-integration.md) for TE architecture
-- See [11-te-optimizations.md](11-te-optimizations.md) for advanced TE features
+- See [11-te-fused-operations.md](11-te-fused-operations.md) for advanced TE features
 - See [12-te-configuration-reference.md](12-te-configuration-reference.md) for complete config options

@@ -77,9 +77,9 @@ MLA (Latent Compression):
 
 ```
 megatron/core/transformer/
-├── attention.py                    # Base Attention class (700+ lines)
-├── dot_product_attention.py        # MHA/GQA/MQA implementation (259 lines)
-├── multi_latent_attention.py       # MLA implementation (1100+ lines)
+├── attention.py                    # Base Attention class (1499 lines)
+├── dot_product_attention.py        # MHA/GQA/MQA implementation (271 lines)
+├── multi_latent_attention.py       # MLA implementation (1046 lines)
 └── transformer_config.py           # Configuration (num_query_groups, MLA params)
 
 Key configuration parameter:
@@ -120,16 +120,16 @@ Output = Concat(Attention_1, ..., Attention_H) W_O
 num_query_groups: Optional[int] = None
 """Number of query groups for group query attention. If None, normal attention is used."""
 
-# Post-initialization (transformer_config.py:766-767):
+# Post-initialization (transformer_config.py:820-821):
 if self.num_query_groups is None:
     self.num_query_groups = self.num_attention_heads  # MHA
 ```
 
 **QKV Projection** (standard self-attention):
 ```python
-# In SelfAttention.__init__:
-self.query_projection_size = config.kv_channels * config.num_attention_heads
-self.kv_projection_size = config.kv_channels * config.num_query_groups
+# In Attention.__init__ (attention.py:166-167):
+self.query_projection_size = self.config.kv_channels * self.config.num_attention_heads
+self.kv_projection_size = self.config.kv_channels * self.config.num_query_groups
 
 # For MHA: num_query_groups == num_attention_heads
 # → kv_projection_size == query_projection_size
@@ -143,7 +143,7 @@ self.linear_qkv = ColumnParallelLinear(
 )
 ```
 
-**Attention Computation** (megatron/core/transformer/dot_product_attention.py:161-167):
+**Attention Computation** (megatron/core/transformer/dot_product_attention.py:169-175):
 ```python
 # Check if GQA/MQA is used
 if self.num_attention_heads_per_partition // self.num_query_groups_per_partition > 1:
@@ -246,7 +246,7 @@ Reduction:    8× fewer KV heads
 num_attention_heads = 64
 num_query_groups = 8  # 8 groups → 64/8 = 8 queries per group
 
-# Validation (transformer_config.py:769-773):
+# Validation (transformer_config.py:823-827):
 if self.num_query_groups % self.tensor_model_parallel_size != 0:
     raise ValueError(
         f"num_query_groups ({self.num_query_groups}) must be a multiple of "
@@ -507,7 +507,7 @@ Additional savings from deduplication across heads:
 
 ### Implementation
 
-**Configuration** (megatron/core/transformer/transformer_config.py:1579-1645):
+**Configuration** (megatron/core/transformer/transformer_config.py:1786-1857):
 ```python
 @dataclass
 class MLATransformerConfig(TransformerConfig):
@@ -739,6 +739,47 @@ Decode latency:
 
   With Flash MLA kernel: Fused load + expand (minimal overhead)
 ```
+
+---
+
+## Attention Output Gate (Qwen3-Next)
+
+Megatron supports an **attention output gate** for architectures like Qwen3-Next that apply
+a gating mechanism to the attention output before the output projection.
+
+### Configuration
+
+```python
+# megatron/core/transformer/transformer_config.py:207-208
+attention_output_gate: bool = False
+"""Whether to apply output gate to the attention layers."""
+```
+
+### How It Works
+
+When `attention_output_gate=True`, the QKV projection produces an additional **gate tensor**
+alongside the standard Q, K, V tensors:
+
+```python
+# In SelfAttention.get_query_key_value_tensors (attention.py:1285-1289):
+if output_gate:
+    # Gate [sq, b, ng, np/ng * hn] -> [sq, b, np, hn]
+    gate = gate.reshape(*gate.shape[:2], -1, self.hidden_size_per_attention_head)
+    return query, key, value, gate
+
+# In Attention.forward (attention.py:1009-1013):
+if gate is not None:
+    core_attn_out = self._apply_output_gate(core_attn_out, gate)
+```
+
+The gate tensor has the same shape as Q and modulates the attention output element-wise
+before the linear projection. This provides the model with a learned mechanism to selectively
+suppress or amplify attention outputs at each head position.
+
+**Constraints**:
+- Not supported with `fused_single_qkv_rope` (validation at `transformer_config.py:1365-1367`)
+- Not supported for CrossAttention
+- Requires `split_qkv=True`
 
 ---
 

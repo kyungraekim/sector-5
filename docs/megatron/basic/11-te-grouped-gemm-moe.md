@@ -920,7 +920,7 @@ self._register_load_state_dict_pre_hook(merge_extra_states, with_module=True)
 
 ### FP8 Grouped GEMM Version Requirement
 
-**megatron/core/transformer/transformer_config.py:1347-1351**
+**megatron/core/transformer/transformer_config.py:1418-1422**
 ```python
 if self.fp8 is not None and self.moe_grouped_gemm:
     assert is_te_min_version("1.11.0"), (
@@ -1208,7 +1208,7 @@ TEGroupedLinear is used in **TEGroupedMLP**, which is the core expert layer in M
 
 ### TEGroupedMLP Architecture
 
-**megatron/core/transformer/moe/experts.py:746-800** (simplified):
+**megatron/core/transformer/moe/experts.py:554-620** (simplified):
 ```python
 class TEGroupedMLP(MegatronModule):
     """An efficient implementation of the Experts layer using TE's GroupedLinear.
@@ -1607,7 +1607,7 @@ python pretrain_gpt.py \
 
 ### With FP8 Training
 
-**megatron/core/transformer/transformer_config.py:1347-1351**
+**megatron/core/transformer/transformer_config.py:1418-1422**
 ```python
 if self.fp8 is not None and self.moe_grouped_gemm:
     assert is_te_min_version("1.11.0"), (
