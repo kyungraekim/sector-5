@@ -2,6 +2,26 @@
 
 Deep technical documentation on GPU computing infrastructure — from low-level kernel compilation to large-scale LLM training optimizations.
 
+<div class="grid cards" markdown>
+
+-   :simple-github: **This documentation**
+
+    ---
+
+    Source for this site
+
+    [:octicons-mark-github-16: kyungraekim/sector-5](https://github.com/kyungraekim/sector-5)
+
+-   :simple-github: **Megatron-LM base**
+
+    ---
+
+    Upstream codebase these docs are based on
+
+    [:octicons-mark-github-16: kyungraekim/megatron](https://github.com/kyungraekim/megatron)
+
+</div>
+
 ---
 
 ## Topics
